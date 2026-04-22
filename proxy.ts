@@ -19,9 +19,17 @@ export async function proxy(request: Request) {
     return authResponse;
   }
 
-  // Check that the signed-in user is the allowed account
+  // Check session and enforce access rules
   const session = await auth0.getSession();
-  if (session && session.user.email !== ALLOWED_EMAIL) {
+
+  if (!session) {
+    // Not logged in — redirect to Auth0 login
+    return NextResponse.redirect(
+      new URL(`/auth/login?returnTo=${encodeURIComponent(pathname)}`, request.url)
+    );
+  }
+
+  if (session.user.email !== ALLOWED_EMAIL) {
     return NextResponse.redirect(new URL("/access-denied", request.url));
   }
 

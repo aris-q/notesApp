@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String     @id @default(cuid())
+  auth0Sub  String     @unique
+  email     String     @unique
+  lists     TaskList[]
+  createdAt DateTime   @default(now())
+}
+
+model TaskList {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  name      String
+  color     String   @default("#6366f1")
+  position  Int      @default(0)
+  tasks     Task[]
+  createdAt DateTime @default(now())
+}
+
+enum Priority {
+  URGENT
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum RecurrenceType {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+  CUSTOM_INTERVAL
+  CUSTOM_DAYS
+}
+
+model Task {
+  id                 String         @id @default(cuid())
+  listId             String
+  list               TaskList       @relation(fields: [listId], references: [id], onDelete: Cascade)
+  title              String
+  description        String?
+  deadline           DateTime?
+  priority           Priority       @default(MEDIUM)
+  isCompleted        Boolean        @default(false)
+  recurrenceType     RecurrenceType @default(NONE)
+  recurrenceInterval Int?
+  recurrenceDays     String[]
+  recurrenceUnit     String?
+  recurrenceEndDate  DateTime?
+  subtasks           Subtask[]
+  links              TaskLink[]
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+}
+
+model Subtask {
+  id          String  @id @default(cuid())
+  taskId      String
+  task        Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  title       String
+  isCompleted Boolean @default(false)
+  position    Int     @default(0)
+}
+
+model TaskLink {
+  id     String @id @default(cuid())
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  title  String
+  url    String
+}

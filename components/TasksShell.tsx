@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar";
 import Column from "./Column";
 import TaskModal from "./TaskModal";
 import CalendarView from "./CalendarView";
+import ImportModal from "./ImportModal";
 import { Task, TaskList } from "@/lib/types";
 
 type View = "tasks" | "calendar";
@@ -47,6 +48,7 @@ export default function TasksShell() {
   const [confettiListId, setConfettiListId] = useState<string | null>(null);
   const [view, setView] = useState<View>("tasks");
   const [hiddenLists, setHiddenLists] = useState<Set<string>>(new Set());
+  const [showImport, setShowImport] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
   const visibleListsRef = useRef<typeof visibleLists>([]);
 
@@ -134,6 +136,14 @@ export default function TasksShell() {
   const handleDelete = async (task: Task) => {
     await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
     if (modal?.task?.id === task.id) setModal(null);
+    refresh();
+  };
+
+  const handleClearAllTasks = async () => {
+    const total = allTasks.length;
+    if (total === 0) return;
+    if (!confirm(`Delete all ${total} task${total !== 1 ? "s" : ""}? This cannot be undone.`)) return;
+    await fetch("/api/tasks", { method: "DELETE" });
     refresh();
   };
 
@@ -274,19 +284,55 @@ export default function TasksShell() {
               background: "rgba(255,255,255,0.04)", fontVariantNumeric: "tabular-nums",
             }}>{allCount} open · {allTasks.filter(t => t.isCompleted).length} done</span>
           </div>
-          <a href="/auth/logout" style={{
-            background: "transparent", border: 0, color: "var(--text-lo)", cursor: "pointer",
-            padding: 6, borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 6,
-            fontSize: 12, textDecoration: "none", transition: "color 160ms",
-          }}
-            onMouseEnter={e => (e.currentTarget.style.color = "var(--text-hi)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "var(--text-lo)")}
-          >
-            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" />
-            </svg>
-            Sign out
-          </a>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button
+              onClick={() => setShowImport(true)}
+              style={{
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)",
+                color: "var(--text-lo)", cursor: "pointer", padding: "4px 10px",
+                borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 5,
+                fontSize: 12, fontWeight: 500, transition: "color 160ms, background 160ms",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = "var(--text-hi)"; e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-lo)"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+              title="Import from Google Tasks"
+            >
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Import
+            </button>
+            <button
+              onClick={handleClearAllTasks}
+              style={{
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)",
+                color: "var(--text-lo)", cursor: "pointer", padding: "4px 10px",
+                borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 5,
+                fontSize: 12, fontWeight: 500, transition: "color 160ms, background 160ms",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = "#f87171"; e.currentTarget.style.background = "rgba(248,113,113,0.08)"; }}
+              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-lo)"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+              title="Clear all tasks"
+            >
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" />
+              </svg>
+              Clear all
+            </button>
+            <a href="/auth/logout" style={{
+              background: "transparent", border: 0, color: "var(--text-lo)", cursor: "pointer",
+              padding: 6, borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 12, textDecoration: "none", transition: "color 160ms",
+            }}
+              onMouseEnter={e => (e.currentTarget.style.color = "var(--text-hi)")}
+              onMouseLeave={e => (e.currentTarget.style.color = "var(--text-lo)")}
+            >
+              <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" />
+              </svg>
+              Sign out
+            </a>
+          </div>
         </div>
 
         {view === "calendar" ? (
@@ -340,6 +386,13 @@ export default function TasksShell() {
           listId={modal.listId}
           lists={lists}
           onClose={handleModalClose}
+        />
+      )}
+
+      {showImport && (
+        <ImportModal
+          onClose={() => setShowImport(false)}
+          onImported={refresh}
         />
       )}
     </div>

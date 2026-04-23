@@ -45,6 +45,28 @@ export async function GET(req: NextRequest) {
   }
 }
 
+export async function DELETE(req: NextRequest) {
+  try {
+    const user = await requireAuthorizedUser(req);
+    const { searchParams } = new URL(req.url);
+    const listId = searchParams.get("listId");
+
+    const listWhere = listId
+      ? { id: listId, userId: user.id }
+      : { userId: user.id };
+
+    const lists = await prisma.taskList.findMany({ where: listWhere, select: { id: true } });
+    const listIds = lists.map(l => l.id);
+
+    if (listIds.length === 0) return new NextResponse(null, { status: 204 });
+
+    await prisma.task.deleteMany({ where: { listId: { in: listIds } } });
+    return new NextResponse(null, { status: 204 });
+  } catch (err) {
+    return handleAuthError(err);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const user = await requireAuthorizedUser(req);

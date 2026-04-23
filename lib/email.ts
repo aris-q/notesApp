@@ -21,10 +21,12 @@ interface DigestTask {
   listName: string;
 }
 
+const OWNER_WHERE = { list: { user: { email: TO_EMAIL } } };
+
 async function getOverdueTasks(): Promise<DigestTask[]> {
   const now = startOfDay(new Date());
   const rows = await prisma.task.findMany({
-    where: { isCompleted: false, deadline: { lt: now } },
+    where: { isCompleted: false, deadline: { lt: now }, ...OWNER_WHERE },
     include: { list: { select: { name: true } } },
     orderBy: { deadline: "asc" },
   });
@@ -34,7 +36,7 @@ async function getOverdueTasks(): Promise<DigestTask[]> {
 async function getDueTodayTasks(): Promise<DigestTask[]> {
   const today = new Date();
   const rows = await prisma.task.findMany({
-    where: { isCompleted: false, deadline: { gte: startOfDay(today), lte: endOfDay(today) } },
+    where: { isCompleted: false, deadline: { gte: startOfDay(today), lte: endOfDay(today) }, ...OWNER_WHERE },
     include: { list: { select: { name: true } } },
     orderBy: { priority: "asc" },
   });
@@ -45,7 +47,7 @@ async function getDueSoonTasks(): Promise<DigestTask[]> {
   const tomorrow = startOfDay(addDays(new Date(), 1));
   const threeDaysOut = endOfDay(addDays(new Date(), 3));
   const rows = await prisma.task.findMany({
-    where: { isCompleted: false, deadline: { gte: tomorrow, lte: threeDaysOut } },
+    where: { isCompleted: false, deadline: { gte: tomorrow, lte: threeDaysOut }, ...OWNER_WHERE },
     include: { list: { select: { name: true } } },
     orderBy: { deadline: "asc" },
   });
@@ -58,6 +60,7 @@ async function getUrgentAnyTimeTasks(excludeIds: string[]): Promise<DigestTask[]
       isCompleted: false,
       priority: { in: ["URGENT", "HIGH"] },
       id: { notIn: excludeIds },
+      ...OWNER_WHERE,
     },
     include: { list: { select: { name: true } } },
     orderBy: [{ priority: "asc" }, { deadline: "asc" }],

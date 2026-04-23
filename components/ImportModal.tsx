@@ -6,6 +6,7 @@ interface ImportTask {
   title: string;
   deadline: string | null;
   notes: string | null;
+  recurrenceType: string;
 }
 
 interface ImportList {
@@ -99,17 +100,22 @@ function parseGoogleTasksHTML(html: string): ImportList[] {
 
       let title: string | null = null;
       let deadline: string | null = null;
+      const isRepeating = /,\s*repeating$/i.test(label);
+      const recurrenceType = isRepeating ? "DAILY" : "NONE";
 
       const deadlineMatch = label.match(/^(.+?)\s+with deadline Due (.+)$/);
+      const dateMatch = label.match(/^(.+?)\s+with date ([^,]+)/);
       if (deadlineMatch) {
         title = deadlineMatch[1].trim();
-        deadline = parseGoogleDate(deadlineMatch[2]);
+        deadline = parseGoogleDate(deadlineMatch[2].replace(/,\s*repeating$/i, "").trim());
+      } else if (dateMatch) {
+        title = dateMatch[1].trim();
+        deadline = parseGoogleDate(dateMatch[2].trim());
       } else {
-        // strip trailing date/repeat info like "with date Today, 9:00 AM, repeating"
         title = label.replace(/\s+with date .+$/, "").trim();
       }
 
-      if (title) tasks.push({ title, deadline, notes: null });
+      if (title) tasks.push({ title, deadline, notes: null, recurrenceType });
     });
 
     result.push({ name: listName, tasks });

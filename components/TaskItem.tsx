@@ -8,15 +8,15 @@ import { PRIORITY_CONFIG } from "@/lib/priority";
 function deadlineMeta(iso: string | null, isCompleted: boolean) {
   if (!iso) return null;
   const d = new Date(iso);
-  const now = new Date();
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0;
   const isToday = d >= today && d < tomorrow;
-  const isPast = d.getTime() < Date.now();
+  const isPast = hasTime ? d.getTime() < Date.now() : d < today;
   const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const fmtTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   if (!isCompleted && isPast && !isToday) return { text: `Overdue · ${fmt(d)}`, tone: "overdue" };
-  if (isToday) return { text: `Today · ${fmtTime(d)}`, tone: "today" };
+  if (isToday) return { text: hasTime ? `Today · ${fmtTime(d)}` : "Today", tone: "today" };
   return { text: fmt(d), tone: "future" };
 }
 

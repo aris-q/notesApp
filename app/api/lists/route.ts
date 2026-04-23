@@ -44,3 +44,13 @@ export async function POST(req: NextRequest) {
     return handleAuthError(err);
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const user = await requireAuthorizedUser(req as Parameters<typeof requireAuthorizedUser>[0]);
+    await prisma.taskList.deleteMany({ where: { userId: user.id } });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return handleAuthError(err);
+  }
+}

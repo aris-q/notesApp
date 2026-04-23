@@ -147,6 +147,15 @@ export default function TasksShell() {
     refresh();
   };
 
+  const handleDeleteAllLists = async () => {
+    if (lists.length === 0) return;
+    if (!confirm(`Delete all ${lists.length} list${lists.length !== 1 ? "s" : ""} and their tasks? This cannot be undone.`)) return;
+    await fetch("/api/lists", { method: "DELETE" });
+    setLists([]);
+    setTasksByList({});
+    setSelectedListId(null);
+  };
+
   const openCreate = (listId: string | null, defaultDate?: Date) =>
     setModal({ listId: listId ?? selectedListId, task: null, defaultDate });
 
@@ -318,6 +327,23 @@ export default function TasksShell() {
                 <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" />
               </svg>
               Clear all
+            </button>
+            <button
+              onClick={handleDeleteAllLists}
+              style={{
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)",
+                color: "var(--text-lo)", cursor: "pointer", padding: "4px 10px",
+                borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 5,
+                fontSize: 12, fontWeight: 500, transition: "color 160ms, background 160ms",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = "#f87171"; e.currentTarget.style.background = "rgba(248,113,113,0.08)"; }}
+              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-lo)"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+              title="Delete all lists"
+            >
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+              </svg>
+              Delete all lists
             </button>
             <a href="/auth/logout" style={{
               background: "transparent", border: 0, color: "var(--text-lo)", cursor: "pointer",

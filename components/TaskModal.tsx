@@ -34,8 +34,14 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
 
   const [title, setTitle] = useState(task?.title ?? "");
   const [description, setDescription] = useState(task?.description ?? "");
-  const [deadline, setDeadline] = useState(
-    task?.deadline ? new Date(task.deadline).toISOString().slice(0, 16) : ""
+  const existingDeadline = task?.deadline ? new Date(task.deadline) : null;
+  const [deadlineDate, setDeadlineDate] = useState(
+    existingDeadline ? existingDeadline.toLocaleDateString("sv") : ""
+  );
+  const [deadlineTime, setDeadlineTime] = useState(
+    existingDeadline && (existingDeadline.getHours() !== 0 || existingDeadline.getMinutes() !== 0)
+      ? existingDeadline.toTimeString().slice(0, 5)
+      : ""
   );
   const [priority, setPriority] = useState<Priority>(task?.priority ?? "MEDIUM");
   const [selectedListId, setSelectedListId] = useState(task?.listId ?? listId ?? lists[0]?.id ?? "");
@@ -75,7 +81,9 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
     const body = {
       listId: selectedListId, title: title.trim(),
       description: description || null,
-      deadline: deadline ? new Date(deadline).toISOString() : null,
+      deadline: deadlineDate
+        ? new Date(deadlineTime ? `${deadlineDate}T${deadlineTime}` : `${deadlineDate}T00:00:00`).toISOString()
+        : null,
       priority, recurrenceType,
       recurrenceInterval: recurrenceType === "CUSTOM_INTERVAL" ? Number(recurrenceInterval) : null,
       recurrenceDays: recurrenceType === "CUSTOM_DAYS" ? recurrenceDays : [],
@@ -279,10 +287,28 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
               <div>
                 <label style={labelStyle}>Deadline</label>
                 <input
-                  type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)}
+                  type="date" value={deadlineDate} onChange={e => setDeadlineDate(e.target.value)}
                   onFocus={() => setFocusField("deadline")} onBlur={() => setFocusField(null)}
-                  style={{ ...fieldBase("deadline"), fontSize: 12.5, colorScheme: "dark", padding: "6px 0" }}
+                  style={{ ...fieldBase("deadline"), fontSize: 12.5, colorScheme: "dark", padding: "6px 0", width: "100%" }}
                 />
+                {deadlineTime !== null && deadlineTime !== "" ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                    <input
+                      type="time" value={deadlineTime} onChange={e => setDeadlineTime(e.target.value)}
+                      onFocus={() => setFocusField("deadlineTime")} onBlur={() => setFocusField(null)}
+                      style={{ ...fieldBase("deadlineTime"), fontSize: 12, colorScheme: "dark", padding: "4px 0", flex: 1 }}
+                    />
+                    <button
+                      onClick={() => setDeadlineTime("")}
+                      style={{ background: "none", border: 0, color: "var(--text-mute)", fontSize: 11, cursor: "pointer", padding: "2px 4px", flexShrink: 0, whiteSpace: "nowrap" }}
+                    >Remove time</button>
+                  </div>
+                ) : deadlineDate ? (
+                  <button
+                    onClick={() => setDeadlineTime("09:00")}
+                    style={{ background: "none", border: 0, color: "var(--text-mute)", fontSize: 11, cursor: "pointer", padding: "4px 0", display: "block" }}
+                  >+ Add time</button>
+                ) : null}
               </div>
             </div>
 

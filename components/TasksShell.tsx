@@ -161,10 +161,10 @@ export default function TasksShell() {
 
   const openEdit = (task: Task) => setModal({ listId: task.listId, task });
 
-  const handleModalClose = async () => {
-    // detect newly added task by refetching and comparing
+  const handleModalClose = async (saveOp?: () => Promise<void>) => {
     const before = Object.values(tasksByList).flat().map(t => t.id);
     setModal(null);
+    if (saveOp) await saveOp();
     await refresh();
     setTasksByList(cur => {
       const after = Object.values(cur).flat();

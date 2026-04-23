@@ -9,8 +9,11 @@ interface Props {
   task: Task | null;
   listId: string | null;
   lists: TaskList[];
-  onClose: () => void;
+  onClose: (saveOp?: () => Promise<void>) => void;
 }
+
+type LocalSubtask = Subtask & { _isNew?: boolean };
+type LocalLink = TaskLink & { _isNew?: boolean };
 
 const RECURRENCE_LABELS: Record<RecurrenceType, string> = {
   NONE: "Does not repeat", DAILY: "Daily", WEEKLY: "Weekly",
@@ -27,6 +30,9 @@ function faviconColor(url: string) {
 }
 function domainFromUrl(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+}
+function normalizeUrl(raw: string) {
+  return raw.startsWith("http") ? raw : `https://${raw}`;
 }
 
 export default function TaskModal({ task, listId, lists, onClose }: Props) {
@@ -52,14 +58,17 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
   const [recurrenceEndDate, setRecurrenceEndDate] = useState(
     task?.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 10) : ""
   );
-  const [subtasks, setSubtasks] = useState<Subtask[]>(task?.subtasks ?? []);
+  const [subtasks, setSubtasks] = useState<LocalSubtask[]>(task?.subtasks ?? []);
   const [newSub, setNewSub] = useState("");
   const [editingSubId, setEditingSubId] = useState<string | null>(null);
   const [editSubValue, setEditSubValue] = useState("");
-  const [links, setLinks] = useState<TaskLink[]>(task?.links ?? []);
+  const [links, setLinks] = useState<LocalLink[]>(task?.links ?? []);
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const [focusField, setFocusField] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+
+  // Track server-side deletions (only for existing records)
+  const deletedSubIds = useRef(new Set<string>());
+  const deletedLinkIds = useRef(new Set<string>());
 
   const descRef = useRef<HTMLTextAreaElement>(null);
 
@@ -75,9 +84,52 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
   const toggleDay = (day: string) =>
     setRecurrenceDays(d => d.includes(day) ? d.filter(x => x !== day) : [...d, day]);
 
-  const submit = async () => {
+  // ── subtask operations (all local, flushed on save) ────────
+  const addSub = () => {
+    if (!newSub.trim()) return;
+    setSubtasks(s => [...s, { id: uid(), taskId: task?.id ?? "", title: newSub.trim(), isCompleted: false, position: s.length, _isNew: true }]);
+    setNewSub("");
+  };
+
+  const removeSub = (id: string) => {
+    const sub = subtasks.find(s => s.id === id);
+    if (sub && !sub._isNew) deletedSubIds.current.add(id);
+    setSubtasks(s => s.filter(x => x.id !== id));
+  };
+
+  const toggleSubLocal = (id: string) =>
+    setSubtasks(s => s.map(x => x.id === id ? { ...x, isCompleted: !x.isCompleted } : x));
+
+  const renameSubLocal = (id: string, newTitle: string) => {
+    if (!newTitle.trim()) return;
+    setSubtasks(s => s.map(x => x.id === id ? { ...x, title: newTitle.trim() } : x));
+  };
+
+  // ── link operations (all local, flushed on save) ──────────
+  const addLink = () => {
+    if (!newLinkUrl.trim()) return;
+    const url = normalizeUrl(newLinkUrl.trim());
+    setLinks(l => [...l, { id: uid(), taskId: task?.id ?? "", title: domainFromUrl(url), url, _isNew: true }]);
+    setNewLinkUrl("");
+  };
+
+  const removeLink = (id: string) => {
+    const lk = links.find(l => l.id === id);
+    if (lk && !lk._isNew) deletedLinkIds.current.add(id);
+    setLinks(l => l.filter(x => x.id !== id));
+  };
+
+  // ── submit: close immediately, save in background ─────────
+  const submit = () => {
     if (!title.trim() || !selectedListId) return;
-    setSaving(true);
+
+    // Auto-flush pending link URL
+    let finalLinks = links;
+    if (newLinkUrl.trim()) {
+      const url = normalizeUrl(newLinkUrl.trim());
+      finalLinks = [...links, { id: uid(), taskId: task?.id ?? "", title: domainFromUrl(url), url, _isNew: true }];
+    }
+
     const body = {
       listId: selectedListId, title: title.trim(),
       description: description || null,
@@ -91,97 +143,73 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
       recurrenceEndDate: recurrenceEndDate ? new Date(recurrenceEndDate).toISOString() : null,
     };
 
-    let savedId = task?.id;
-    if (isEditing && task) {
-      await fetch(`/api/tasks/${task.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-      });
-    } else {
-      const res = await fetch("/api/tasks", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-      });
-      if (res.ok) { const created = await res.json(); savedId = created.id; }
-    }
+    const saveOp = async () => {
+      if (isEditing && task) {
+        await fetch(`/api/tasks/${task.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        });
 
-    if (!isEditing && savedId) {
-      for (const sub of subtasks) {
-        await fetch(`/api/tasks/${savedId}/subtasks`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: sub.title }),
+        // New subtasks
+        for (const s of subtasks.filter(s => s._isNew)) {
+          await fetch(`/api/tasks/${task.id}/subtasks`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: s.title }),
+          });
+        }
+        // Deleted subtasks
+        for (const id of deletedSubIds.current) {
+          await fetch(`/api/tasks/${task.id}/subtasks?subtaskId=${id}`, { method: "DELETE" });
+        }
+        // Modified existing subtasks (title or completion changed)
+        const origSubs = task.subtasks ?? [];
+        for (const s of subtasks.filter(s => !s._isNew)) {
+          const orig = origSubs.find(o => o.id === s.id);
+          if (orig && (orig.title !== s.title || orig.isCompleted !== s.isCompleted)) {
+            await fetch(`/api/tasks/${task.id}/subtasks`, {
+              method: "PATCH", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ subtaskId: s.id, title: s.title, isCompleted: s.isCompleted }),
+            });
+          }
+        }
+
+        // New links
+        for (const l of finalLinks.filter(l => l._isNew)) {
+          await fetch(`/api/tasks/${task.id}/links`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: l.title, url: l.url }),
+          });
+        }
+        // Deleted links
+        for (const id of deletedLinkIds.current) {
+          await fetch(`/api/tasks/${task.id}/links?linkId=${id}`, { method: "DELETE" });
+        }
+      } else {
+        // New task
+        const res = await fetch("/api/tasks", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
         });
+        if (res.ok) {
+          const created = await res.json();
+          for (const sub of subtasks) {
+            await fetch(`/api/tasks/${created.id}/subtasks`, {
+              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: sub.title }),
+            });
+          }
+          for (const link of finalLinks) {
+            await fetch(`/api/tasks/${created.id}/links`, {
+              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: link.title, url: link.url }),
+            });
+          }
+        }
       }
-      for (const link of links) {
-        await fetch(`/api/tasks/${savedId}/links`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: link.title, url: link.url }),
-        });
-      }
-    }
-    setSaving(false);
-    onClose();
+    };
+
+    onClose(saveOp);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!task) return;
-    await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
-    onClose();
-  };
-
-  const addSub = async () => {
-    if (!newSub.trim()) return;
-    if (isEditing && task) {
-      const res = await fetch(`/api/tasks/${task.id}/subtasks`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: newSub.trim() }),
-      });
-      if (res.ok) { const s = await res.json(); setSubtasks(prev => [...prev, s]); }
-    } else {
-      setSubtasks(s => [...s, { id: uid(), taskId: "", title: newSub.trim(), isCompleted: false, position: s.length }]);
-    }
-    setNewSub("");
-  };
-
-  const removeSub = async (id: string) => {
-    if (isEditing && task) {
-      await fetch(`/api/tasks/${task.id}/subtasks?subtaskId=${id}`, { method: "DELETE" });
-    }
-    setSubtasks(s => s.filter(x => x.id !== id));
-  };
-
-  const toggleSubLocal = (id: string) =>
-    setSubtasks(s => s.map(x => x.id === id ? { ...x, isCompleted: !x.isCompleted } : x));
-
-  const renameSubLocal = async (id: string, newTitle: string) => {
-    if (!newTitle.trim()) return;
-    setSubtasks(s => s.map(x => x.id === id ? { ...x, title: newTitle.trim() } : x));
-    if (isEditing && task) {
-      await fetch(`/api/tasks/${task.id}/subtasks`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subtaskId: id, title: newTitle.trim() }),
-      });
-    }
-  };
-
-  const addLink = async () => {
-    if (!newLinkUrl.trim()) return;
-    const url = newLinkUrl.startsWith("http") ? newLinkUrl : `https://${newLinkUrl}`;
-    const linkTitle = domainFromUrl(url);
-    if (isEditing && task) {
-      const res = await fetch(`/api/tasks/${task.id}/links`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: linkTitle, url }),
-      });
-      if (res.ok) { const l = await res.json(); setLinks(prev => [...prev, l]); }
-    } else {
-      setLinks(l => [...l, { id: uid(), taskId: "", title: linkTitle, url }]);
-    }
-    setNewLinkUrl("");
-  };
-
-  const removeLink = async (id: string) => {
-    if (isEditing && task) {
-      await fetch(`/api/tasks/${task.id}/links?linkId=${id}`, { method: "DELETE" });
-    }
-    setLinks(l => l.filter(x => x.id !== id));
+    onClose(async () => {
+      await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
+    });
   };
 
   const labelStyle: React.CSSProperties = {
@@ -206,7 +234,7 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
         backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
         animation: "tf-backdropIn 200ms ease",
       }}
-      onClick={onClose}
+      onClick={() => onClose()}
     >
       <div
         onClick={e => e.stopPropagation()}
@@ -230,7 +258,7 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
               {isEditing ? "Edit task" : "New task"}
             </span>
           </div>
-          <button onClick={onClose} style={{ background: "transparent", border: 0, color: "var(--text-lo)", cursor: "pointer", padding: 6, borderRadius: 6, display: "flex" }}>
+          <button onClick={() => onClose()} style={{ background: "transparent", border: 0, color: "var(--text-lo)", cursor: "pointer", padding: 6, borderRadius: 6, display: "flex" }}>
             <XIcon />
           </button>
         </div>
@@ -248,7 +276,7 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
               placeholder="Task title"
               style={{ ...fieldBase("title"), fontSize: 19, fontWeight: 500, padding: "10px 0" }}
             />
-            {/* Description — flows below title on Enter */}
+            {/* Description */}
             <textarea
               ref={descRef}
               value={description} onChange={e => setDescription(e.target.value)}
@@ -514,10 +542,10 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
             )}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={onClose} style={{ background: "transparent", border: 0, color: "var(--text-md)", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, cursor: "pointer" }}>
+            <button onClick={() => onClose()} style={{ background: "transparent", border: 0, color: "var(--text-md)", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, cursor: "pointer" }}>
               Cancel
             </button>
-            <button onClick={submit} disabled={saving || !title.trim()} style={{
+            <button onClick={submit} disabled={!title.trim()} style={{
               background: title.trim() ? listColor : "rgba(255,255,255,0.06)",
               color: title.trim() ? "#0b0d12" : "var(--text-mute)",
               border: 0, padding: "8px 16px", borderRadius: 8,
@@ -525,7 +553,7 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
               boxShadow: title.trim() ? `0 4px 16px ${listColor}55` : "none",
               transition: "all 180ms",
             }}>
-              {saving ? "Saving…" : isEditing ? "Save changes" : "Create task"}
+              {isEditing ? "Save changes" : "Create task"}
             </button>
           </div>
         </div>

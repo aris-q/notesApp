@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
             description: t.notes ?? null,
             deadline: t.deadline ? new Date(t.deadline) : null,
             priority: "MEDIUM",
-            recurrenceType: t.recurrenceType ?? "NONE",
+            recurrenceType: (t.recurrenceType ?? "NONE") as import('@prisma/client').RecurrenceType,
             recurrenceDays: [],
           })),
         });

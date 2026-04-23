@@ -68,7 +68,7 @@ function parseGoogleTasksHTML(html: string): ImportList[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
-  // Build listId → name from sidebar entries (aria-label="Name. N active tasks.")
+  // Build listId → name from sidebar nav entries
   const listNameMap = new Map<string, string>();
   doc.querySelectorAll("[data-task-list-id]").forEach(el => {
     const label = el.getAttribute("aria-label") ?? "";
@@ -78,21 +78,24 @@ function parseGoogleTasksHTML(html: string): ImportList[] {
     }
   });
 
-  // Find list section containers in the content area
   const result: ImportList[] = [];
   const seen = new Set<string>();
 
-  doc.querySelectorAll('[data-task-list-id][aria-label="Active tasks"]').forEach(sectionEl => {
-    const listId = sectionEl.getAttribute("data-task-list-id")!;
+  // Panels are elements with both data-task-list-id and data-num-completed
+  doc.querySelectorAll("[data-task-list-id][data-num-completed]").forEach(panelEl => {
+    const listId = panelEl.getAttribute("data-task-list-id")!;
     if (seen.has(listId)) return;
     seen.add(listId);
 
     const listName = listNameMap.get(listId) ?? "Imported";
     const tasks: ImportTask[] = [];
 
-    sectionEl.querySelectorAll("[data-task-id]").forEach(taskEl => {
+    panelEl.querySelectorAll("[data-task-id]").forEach(taskEl => {
       const label = taskEl.getAttribute("aria-label") ?? "";
       if (!label) return;
+      // skip completed tasks (label ends with "completed on <date>")
+      if (/completed on .+$/i.test(label)) return;
+      if (label.includes("Press enter") || label.toLowerCase().startsWith("mark completed")) return;
 
       let title: string | null = null;
       let deadline: string | null = null;
@@ -101,16 +104,12 @@ function parseGoogleTasksHTML(html: string): ImportList[] {
       if (deadlineMatch) {
         title = deadlineMatch[1].trim();
         deadline = parseGoogleDate(deadlineMatch[2]);
-      } else if (
-        !label.includes("Press enter") &&
-        !label.toLowerCase().startsWith("mark completed")
-      ) {
-        title = label.trim();
+      } else {
+        // strip trailing date/repeat info like "with date Today, 9:00 AM, repeating"
+        title = label.replace(/\s+with date .+$/, "").trim();
       }
 
-      if (title) {
-        tasks.push({ title, deadline, notes: null });
-      }
+      if (title) tasks.push({ title, deadline, notes: null });
     });
 
     result.push({ name: listName, tasks });

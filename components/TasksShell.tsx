@@ -366,6 +366,7 @@ export default function TasksShell() {
             <CalendarView
               tasks={allTasks}
               lists={lists}
+              hiddenLists={hiddenLists}
               onEditTask={openEdit}
               onAddTask={openCreate}
             />

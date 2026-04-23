@@ -265,20 +265,20 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
             />
 
             {/* List + Deadline */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 22 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 16, marginTop: 18 }}>
               <div>
                 <label style={labelStyle}>List</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                   {lists.map(l => (
                     <button key={l.id} onClick={() => setSelectedListId(l.id)} style={{
-                      display: "inline-flex", alignItems: "center", gap: 6,
-                      padding: "4px 10px 4px 8px", borderRadius: 999,
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "3px 8px 3px 7px", borderRadius: 999,
                       background: selectedListId === l.id ? l.color + "22" : "rgba(255,255,255,0.03)",
                       border: `1px solid ${selectedListId === l.id ? l.color + "66" : "rgba(255,255,255,0.05)"}`,
                       color: selectedListId === l.id ? "var(--text-hi)" : "var(--text-md)",
-                      fontSize: 11.5, cursor: "pointer", transition: "all 160ms",
+                      fontSize: 11, cursor: "pointer", transition: "all 160ms",
                     }}>
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: l.color }} />
+                      <span style={{ width: 5, height: 5, borderRadius: "50%", background: l.color }} />
                       {l.name}
                     </button>
                   ))}
@@ -289,31 +289,31 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
                 <input
                   type="date" value={deadlineDate} onChange={e => setDeadlineDate(e.target.value)}
                   onFocus={() => setFocusField("deadline")} onBlur={() => setFocusField(null)}
-                  style={{ ...fieldBase("deadline"), fontSize: 12.5, colorScheme: "dark", padding: "6px 0", width: "100%" }}
+                  style={{ ...fieldBase("deadline"), fontSize: 11.5, colorScheme: "dark", padding: "4px 0", width: "100%" }}
                 />
                 {deadlineTime !== null && deadlineTime !== "" ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
                     <input
                       type="time" value={deadlineTime} onChange={e => setDeadlineTime(e.target.value)}
                       onFocus={() => setFocusField("deadlineTime")} onBlur={() => setFocusField(null)}
-                      style={{ ...fieldBase("deadlineTime"), fontSize: 12, colorScheme: "dark", padding: "4px 0", flex: 1 }}
+                      style={{ ...fieldBase("deadlineTime"), fontSize: 11, colorScheme: "dark", padding: "3px 0", flex: 1 }}
                     />
                     <button
                       onClick={() => setDeadlineTime("")}
-                      style={{ background: "none", border: 0, color: "var(--text-mute)", fontSize: 11, cursor: "pointer", padding: "2px 4px", flexShrink: 0, whiteSpace: "nowrap" }}
-                    >Remove time</button>
+                      style={{ background: "none", border: 0, color: "var(--text-mute)", fontSize: 10, cursor: "pointer", padding: "2px 2px", flexShrink: 0, whiteSpace: "nowrap" }}
+                    >✕</button>
                   </div>
                 ) : deadlineDate ? (
                   <button
                     onClick={() => setDeadlineTime("09:00")}
-                    style={{ background: "none", border: 0, color: "var(--text-mute)", fontSize: 11, cursor: "pointer", padding: "4px 0", display: "block" }}
-                  >+ Add time</button>
+                    style={{ background: "none", border: 0, color: "var(--text-mute)", fontSize: 10, cursor: "pointer", padding: "3px 0", display: "block" }}
+                  >+ time</button>
                 ) : null}
               </div>
             </div>
 
             {/* Priority */}
-            <div style={{ marginTop: 22 }}>
+            <div style={{ marginTop: 16 }}>
               <label style={labelStyle}>Priority</label>
               <div style={{ display: "flex", gap: 6 }}>
                 {PRIORITY_ORDER.map(p => {
@@ -337,7 +337,7 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
             </div>
 
             {/* Recurrence */}
-            <div style={{ marginTop: 22 }}>
+            <div style={{ marginTop: 16 }}>
               <label style={labelStyle}>Repeat</label>
               <select
                 value={recurrenceType} onChange={e => setRecurrenceType(e.target.value as RecurrenceType)}
@@ -387,7 +387,7 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
 
           {/* Right: subtasks + links */}
           <div style={{
-            width: 230, flexShrink: 0,
+            width: 310, flexShrink: 0,
             borderLeft: "1px solid rgba(255,255,255,0.05)",
             display: "flex", flexDirection: "column", overflow: "hidden",
           }}>

@@ -9,6 +9,7 @@ import { RecurrenceType } from "@prisma/client";
 interface Props {
   tasks: Task[];
   lists: TaskList[];
+  hiddenLists?: Set<string>;
   onEditTask: (task: Task) => void;
   onAddTask: (listId: string | null, date?: Date) => void;
 }
@@ -23,19 +24,20 @@ function startOfWeek(d: Date) {
   x.setDate(x.getDate() - dow); x.setHours(0, 0, 0, 0); return x;
 }
 
-export default function CalendarView({ tasks, lists, onEditTask, onAddTask }: Props) {
+export default function CalendarView({ tasks, lists, hiddenLists, onEditTask, onAddTask }: Props) {
   const [mode, setMode] = useState<"month" | "week" | "day">("month");
   const [cursor, setCursor] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
 
   const listById = useMemo(() => Object.fromEntries(lists.map(l => [l.id, l])), [lists]);
 
-  // Expand recurrences into tasksByDay
+  // Expand recurrences into tasksByDay (respects hiddenLists)
   const tasksByDay = useMemo(() => {
     const m: Record<string, Task[]> = {};
     const horizon = addDays(new Date(), 90);
     for (const t of tasks) {
       if (!t.deadline) continue;
+      if (hiddenLists?.has(t.listId)) continue;
       const add = (d: Date) => { const k = dayKey(d); (m[k] = m[k] || []).push(t); };
       add(new Date(t.deadline));
       const expanded = expandRecurrence(
@@ -45,7 +47,7 @@ export default function CalendarView({ tasks, lists, onEditTask, onAddTask }: Pr
       for (const d of expanded) add(d);
     }
     return m;
-  }, [tasks]);
+  }, [tasks, hiddenLists]);
 
   const go = useCallback((delta: number) => {
     setCursor(prev => {
@@ -213,7 +215,7 @@ function MonthGrid({ cursor, tasksByDay, listById, onEditTask, selectedDay, onDa
               <div style={{ display: "flex", flexDirection: "column", gap: 3, overflow: "hidden" }}>
                 {dayTasks.slice(0, 3).map(t => {
                   const list = listById[t.listId]; const color = list?.color || "#7c9dff";
-                  return <CalChip key={t.id} task={t} color={color} onClick={e => { e.stopPropagation(); onEditTask(t); }} />;
+                  return <CalChip key={t.id} task={t} color={color} onClick={e => { e.stopPropagation(); onEditTask(t); }} dimmed={t.recurrenceType === "DAILY"} />;
                 })}
                 {dayTasks.length > 3 && <span style={{ fontSize: 9.5, color: "var(--text-mute)", fontVariantNumeric: "tabular-nums" }}>+{dayTasks.length - 3}</span>}
               </div>
@@ -272,7 +274,7 @@ function WeekGrid({ cursor, tasksByDay, listById, onEditTask, selectedDay, onDay
             <div style={{ display: "flex", flexDirection: "column", gap: 4, overflowY: "auto" }}>
               {dayTasks.map(t => {
                 const list = listById[t.listId]; const color = list?.color || "#7c9dff";
-                return <CalChip key={t.id} task={t} color={color} onClick={e => { e.stopPropagation(); onEditTask(t); }} showTime />;
+                return <CalChip key={t.id} task={t} color={color} onClick={e => { e.stopPropagation(); onEditTask(t); }} showTime dimmed={t.recurrenceType === "DAILY"} />;
               })}
               {dayTasks.length === 0 && <div style={{ fontSize: 11, color: "var(--text-mute)", fontStyle: "italic" }}>—</div>}
             </div>
@@ -429,17 +431,22 @@ function DayView({ cursor, tasksByDay, listById, onEditTask, onAddTask }: {
   );
 }
 
-function CalChip({ task, color, onClick, showTime }: { task: Task; color: string; onClick: (e: React.MouseEvent) => void; showTime?: boolean }) {
+function CalChip({ task, color, onClick, showTime, dimmed }: { task: Task; color: string; onClick: (e: React.MouseEvent) => void; showTime?: boolean; dimmed?: boolean }) {
   const d = task.deadline ? new Date(task.deadline) : null;
   return (
     <button onClick={onClick} style={{
       display: "flex", flexDirection: showTime ? "column" : "row", alignItems: showTime ? "stretch" : "center", gap: showTime ? 2 : 5,
-      padding: "4px 7px 4px 6px", background: color + "14", border: `1px solid ${color}22`, borderLeft: `2px solid ${color}`,
-      borderRadius: 5, color: task.isCompleted ? "var(--text-lo)" : "var(--text-hi)",
+      padding: "4px 7px 4px 6px",
+      background: dimmed ? color + "08" : color + "14",
+      border: `1px solid ${dimmed ? color + "14" : color + "22"}`,
+      borderLeft: `2px solid ${dimmed ? color + "50" : color}`,
+      borderRadius: 5,
+      color: task.isCompleted || dimmed ? "var(--text-lo)" : "var(--text-hi)",
       textDecoration: task.isCompleted ? "line-through" : "none",
-      fontSize: 10.5, fontWeight: 500, textAlign: "left", cursor: "pointer", minWidth: 0,
+      fontSize: 10.5, fontWeight: dimmed ? 400 : 500, textAlign: "left", cursor: "pointer", minWidth: 0,
+      opacity: dimmed ? 0.55 : 1,
     }}>
-      {showTime && d && <span style={{ color, fontVariantNumeric: "tabular-nums", fontSize: 9.5, letterSpacing: 0.2 }}>{d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>}
+      {showTime && d && <span style={{ color: dimmed ? color + "99" : color, fontVariantNumeric: "tabular-nums", fontSize: 9.5, letterSpacing: 0.2 }}>{d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>}
       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: 1, lineHeight: 1.3 }}>{task.title}</span>
     </button>
   );

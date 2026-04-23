@@ -81,9 +81,10 @@ export default function TaskPanel({
               <TaskItem
                 key={task.id}
                 task={task}
+                list={selectedList!}
+                onToggle={onToggleComplete}
                 onEdit={onEditTask}
                 onDelete={onDeleteTask}
-                onToggleComplete={onToggleComplete}
                 onToggleSubtask={onToggleSubtask}
               />
             ))}
@@ -98,9 +99,10 @@ export default function TaskPanel({
                   <TaskItem
                     key={task.id}
                     task={task}
+                    list={selectedList!}
+                    onToggle={onToggleComplete}
                     onEdit={onEditTask}
                     onDelete={onDeleteTask}
-                    onToggleComplete={onToggleComplete}
                     onToggleSubtask={onToggleSubtask}
                   />
                 ))}

@@ -42,6 +42,28 @@ function parseGoogleDate(str: string): string | null {
   return null;
 }
 
+function decodeQuotedPrintable(str: string): string {
+  return str
+    .replace(/=\r?\n/g, "")
+    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+function extractHtmlFromMhtml(mhtml: string): string {
+  const boundaryMatch = mhtml.match(/boundary="([^"]+)"/);
+  if (!boundaryMatch) return mhtml;
+  const boundary = "--" + boundaryMatch[1];
+  const parts = mhtml.split(boundary);
+  for (const part of parts) {
+    if (/Content-Type:\s*text\/html/i.test(part)) {
+      const bodyStart = part.indexOf("\r\n\r\n");
+      const body = bodyStart !== -1 ? part.slice(bodyStart + 4) : part;
+      const isQP = /Content-Transfer-Encoding:\s*quoted-printable/i.test(part);
+      return isQP ? decodeQuotedPrintable(body) : body;
+    }
+  }
+  return mhtml;
+}
+
 function parseGoogleTasksHTML(html: string): ImportList[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
@@ -115,7 +137,10 @@ export default function ImportModal({ onClose, onImported }: Props) {
     const reader = new FileReader();
     reader.onload = ev => {
       try {
-        const html = ev.target?.result as string;
+        const raw = ev.target?.result as string;
+        const html = file.name.endsWith(".mhtml") || file.name.endsWith(".mht")
+          ? extractHtmlFromMhtml(raw)
+          : raw;
         const lists = parseGoogleTasksHTML(html);
         if (lists.length === 0) {
           setError("No task lists found. Make sure this is a saved Google Tasks page.");
@@ -168,7 +193,7 @@ export default function ImportModal({ onClose, onImported }: Props) {
         </div>
 
         <p style={{ margin: "0 0 16px", fontSize: 12.5, color: "var(--text-mute, #666)", lineHeight: 1.5 }}>
-          In Google Tasks, press <strong>Ctrl+S</strong> (or File → Save Page As) to save the page as HTML,
+          In Google Tasks, press <strong>Ctrl+S</strong> (or File → Save Page As) and save as <strong>Webpage, Single File (.mhtml)</strong>,
           then upload that file here.
         </p>
 
@@ -183,7 +208,7 @@ export default function ImportModal({ onClose, onImported }: Props) {
             onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
             onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
           >
-            Choose HTML file
+            Choose MHTML file
           </button>
         ) : (
           <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "12px 14px", marginBottom: 16 }}>
@@ -198,7 +223,7 @@ export default function ImportModal({ onClose, onImported }: Props) {
           </div>
         )}
 
-        <input ref={fileRef} type="file" accept=".html,.htm" style={{ display: "none" }} onChange={handleFile} />
+        <input ref={fileRef} type="file" accept=".mhtml,.mht,.html,.htm" style={{ display: "none" }} onChange={handleFile} />
 
         {error && (
           <p style={{ color: "#f87171", fontSize: 12, margin: "10px 0 0" }}>{error}</p>

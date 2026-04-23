@@ -20,6 +20,10 @@ export async function requireAuthorizedUser(req?: NextRequest) {
     throw new AuthError(401, "Unauthorized");
   }
 
+  if (session.user.email !== OWNER_EMAIL) {
+    throw new AuthError(403, "Forbidden");
+  }
+
   const user = await prisma.user.upsert({
     where: { auth0Sub: session.user.sub },
     update: { lastActiveAt: new Date() },

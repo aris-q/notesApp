@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { auth0 } from "./lib/auth0";
 
 const ALLOWED_EMAIL = process.env.ALLOWED_EMAIL ?? "more.early@gmail.com";
@@ -20,7 +20,7 @@ export async function proxy(request: Request) {
   }
 
   // Check session and enforce access rules
-  const session = await auth0.getSession();
+  const session = await auth0.getSession(request as NextRequest);
 
   if (!session) {
     // Not logged in — redirect to Auth0 login

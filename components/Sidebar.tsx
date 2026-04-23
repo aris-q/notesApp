@@ -146,7 +146,7 @@ export default function Sidebar({ lists, selectedListId, onSelect, onCreate, all
                 boxShadow: active && !hidden ? `0 0 8px ${list.color}` : "none",
                 transition: "box-shadow 220ms", flexShrink: 0,
               }} />
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: hidden ? "line-through" : "none", textDecorationColor: "var(--text-mute)" }}>
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecorationLine: hidden ? "line-through" : "none", textDecorationColor: "var(--text-mute)" }}>
                 {list.name}
               </span>
               <button

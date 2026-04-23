@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Priority, RecurrenceType } from "@prisma/client";
 import { PRIORITY_CONFIG, PRIORITY_ORDER } from "@/lib/priority";
 import { Task, TaskList, Subtask, TaskLink } from "@/lib/types";
@@ -25,6 +25,9 @@ function faviconColor(url: string) {
   for (let i = 0; i < url.length; i++) h = (h * 31 + url.charCodeAt(i)) >>> 0;
   return `hsl(${h % 360} 60% 60%)`;
 }
+function domainFromUrl(url: string) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+}
 
 export default function TaskModal({ task, listId, lists, onClose }: Props) {
   const isEditing = !!task;
@@ -45,11 +48,14 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
   );
   const [subtasks, setSubtasks] = useState<Subtask[]>(task?.subtasks ?? []);
   const [newSub, setNewSub] = useState("");
+  const [editingSubId, setEditingSubId] = useState<string | null>(null);
+  const [editSubValue, setEditSubValue] = useState("");
   const [links, setLinks] = useState<TaskLink[]>(task?.links ?? []);
-  const [newLinkTitle, setNewLinkTitle] = useState("");
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const [focusField, setFocusField] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const descRef = useRef<HTMLTextAreaElement>(null);
 
   const currentList = lists.find(l => l.id === selectedListId) || lists[0];
   const listColor = currentList?.color || "#7c9dff";
@@ -128,9 +134,7 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
 
   const removeSub = async (id: string) => {
     if (isEditing && task) {
-      await fetch(`/api/tasks/${task.id}/subtasks`, {
-        method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subtaskId: id }),
-      });
+      await fetch(`/api/tasks/${task.id}/subtasks?subtaskId=${id}`, { method: "DELETE" });
     }
     setSubtasks(s => s.filter(x => x.id !== id));
   };
@@ -138,42 +142,52 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
   const toggleSubLocal = (id: string) =>
     setSubtasks(s => s.map(x => x.id === id ? { ...x, isCompleted: !x.isCompleted } : x));
 
+  const renameSubLocal = async (id: string, newTitle: string) => {
+    if (!newTitle.trim()) return;
+    setSubtasks(s => s.map(x => x.id === id ? { ...x, title: newTitle.trim() } : x));
+    if (isEditing && task) {
+      await fetch(`/api/tasks/${task.id}/subtasks`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subtaskId: id, title: newTitle.trim() }),
+      });
+    }
+  };
+
   const addLink = async () => {
-    if (!newLinkTitle.trim() || !newLinkUrl.trim()) return;
+    if (!newLinkUrl.trim()) return;
     const url = newLinkUrl.startsWith("http") ? newLinkUrl : `https://${newLinkUrl}`;
+    const linkTitle = domainFromUrl(url);
     if (isEditing && task) {
       const res = await fetch(`/api/tasks/${task.id}/links`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newLinkTitle.trim(), url }),
+        body: JSON.stringify({ title: linkTitle, url }),
       });
       if (res.ok) { const l = await res.json(); setLinks(prev => [...prev, l]); }
     } else {
-      setLinks(l => [...l, { id: uid(), taskId: "", title: newLinkTitle.trim(), url }]);
+      setLinks(l => [...l, { id: uid(), taskId: "", title: linkTitle, url }]);
     }
-    setNewLinkTitle(""); setNewLinkUrl("");
+    setNewLinkUrl("");
   };
 
   const removeLink = async (id: string) => {
     if (isEditing && task) {
-      await fetch(`/api/tasks/${task.id}/links`, {
-        method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ linkId: id }),
-      });
+      await fetch(`/api/tasks/${task.id}/links?linkId=${id}`, { method: "DELETE" });
     }
     setLinks(l => l.filter(x => x.id !== id));
   };
 
-  const field = (name: string): React.CSSProperties => ({
+  const labelStyle: React.CSSProperties = {
+    display: "block", fontSize: 10, fontWeight: 600, letterSpacing: 1.2,
+    textTransform: "uppercase", color: "var(--text-mute)", marginBottom: 6,
+  };
+
+  const fieldBase = (name: string): React.CSSProperties => ({
     width: "100%", background: "transparent", border: 0,
     borderBottom: `1px solid ${focusField === name ? listColor : "rgba(255,255,255,0.08)"}`,
     padding: "8px 0", fontSize: 14, color: "var(--text-hi)", outline: "none",
     transition: "border-color 200ms",
     boxShadow: focusField === name ? `0 1px 0 0 ${listColor}` : "none",
   });
-
-  const labelStyle: React.CSSProperties = {
-    display: "block", fontSize: 10, fontWeight: 600, letterSpacing: 1.2,
-    textTransform: "uppercase", color: "var(--text-mute)", marginBottom: 6,
-  };
 
   return (
     <div
@@ -189,7 +203,7 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          width: 560, maxWidth: "92vw", maxHeight: "88vh",
+          width: 820, maxWidth: "94vw", maxHeight: "88vh",
           background: "var(--bg-modal)", borderRadius: 18,
           border: "1px solid rgba(255,255,255,0.06)",
           boxShadow: `0 24px 64px -12px rgba(0,0,0,0.7), 0 0 40px -10px ${listColor}33`,
@@ -213,185 +227,243 @@ export default function TaskModal({ task, listId, lists, onClose }: Props) {
           </button>
         </div>
 
-        {/* Body */}
-        <div className="tf-scroll" style={{ flex: 1, overflowY: "auto", padding: "6px 22px 18px" }}>
-          <input
-            autoFocus value={title} onChange={e => setTitle(e.target.value)}
-            onFocus={() => setFocusField("title")} onBlur={() => setFocusField(null)}
-            onKeyDown={e => { if (e.key === "Enter") submit(); }}
-            placeholder="Task title"
-            style={{ ...field("title"), fontSize: 19, fontWeight: 500, padding: "10px 0" }}
-          />
-          <textarea
-            value={description} onChange={e => setDescription(e.target.value)}
-            onFocus={() => setFocusField("desc")} onBlur={() => setFocusField(null)}
-            placeholder="Add description…"
-            rows={2}
-            style={{ ...field("desc"), resize: "none", fontSize: 13, marginTop: 14, color: "var(--text-md)" }}
-          />
+        {/* Body — two columns */}
+        <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 22 }}>
-            <div>
-              <label style={labelStyle}>List</label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {lists.map(l => (
-                  <button key={l.id} onClick={() => setSelectedListId(l.id)} style={{
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                    padding: "4px 10px 4px 8px", borderRadius: 999,
-                    background: selectedListId === l.id ? l.color + "22" : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${selectedListId === l.id ? l.color + "66" : "rgba(255,255,255,0.05)"}`,
-                    color: selectedListId === l.id ? "var(--text-hi)" : "var(--text-md)",
-                    fontSize: 11.5, cursor: "pointer", transition: "all 160ms",
-                  }}>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: l.color }} />
-                    {l.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label style={labelStyle}>Deadline</label>
-              <input
-                type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)}
-                onFocus={() => setFocusField("deadline")} onBlur={() => setFocusField(null)}
-                style={{ ...field("deadline"), fontSize: 12.5, colorScheme: "dark", padding: "6px 0" }}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginTop: 22 }}>
-            <label style={labelStyle}>Priority</label>
-            <div style={{ display: "flex", gap: 6 }}>
-              {PRIORITY_ORDER.map(p => {
-                const c = PRIORITY_CONFIG[p].hex;
-                const active = priority === p;
-                return (
-                  <button key={p} onClick={() => setPriority(p)} style={{
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                    padding: "5px 11px", borderRadius: 7,
-                    background: active ? c + "22" : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${active ? c + "66" : "rgba(255,255,255,0.05)"}`,
-                    color: active ? c : "var(--text-md)",
-                    fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 160ms",
-                  }}>
-                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: c, boxShadow: active ? `0 0 6px ${c}` : "none" }} />
-                    {PRIORITY_CONFIG[p].label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Recurrence */}
-          <div style={{ marginTop: 22 }}>
-            <label style={labelStyle}>Repeat</label>
-            <select
-              value={recurrenceType} onChange={e => setRecurrenceType(e.target.value as RecurrenceType)}
+          {/* Left: main fields */}
+          <div className="tf-scroll" style={{ flex: 1, overflowY: "auto", padding: "6px 22px 18px", minWidth: 0 }}>
+            {/* Title */}
+            <input
+              autoFocus value={title} onChange={e => setTitle(e.target.value)}
+              onFocus={() => setFocusField("title")} onBlur={() => setFocusField(null)}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); descRef.current?.focus(); } }}
+              placeholder="Task title"
+              style={{ ...fieldBase("title"), fontSize: 19, fontWeight: 500, padding: "10px 0" }}
+            />
+            {/* Description — flows below title on Enter */}
+            <textarea
+              ref={descRef}
+              value={description} onChange={e => setDescription(e.target.value)}
+              onFocus={() => setFocusField("desc")} onBlur={() => setFocusField(null)}
+              placeholder="Add a note…"
+              rows={2}
               style={{
-                width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 7, padding: "7px 10px", fontSize: 12.5, color: "var(--text-hi)",
-                outline: "none", cursor: "pointer", colorScheme: "dark",
+                width: "100%", background: "transparent", border: 0,
+                borderBottom: `1px solid ${focusField === "desc" ? listColor : "transparent"}`,
+                padding: "3px 0", fontSize: 13, color: "var(--text-md)", outline: "none",
+                resize: "none", transition: "border-color 200ms", lineHeight: 1.5,
+                marginTop: 2, display: "block",
               }}
-            >
-              {(Object.keys(RECURRENCE_LABELS) as RecurrenceType[]).map(r => (
-                <option key={r} value={r}>{RECURRENCE_LABELS[r]}</option>
-              ))}
-            </select>
-            {recurrenceType === "CUSTOM_INTERVAL" && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-                <span style={{ fontSize: 12, color: "var(--text-md)" }}>Every</span>
-                <input type="number" min={1} value={recurrenceInterval} onChange={e => setRecurrenceInterval(e.target.value)}
-                  style={{ width: 56, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: "var(--text-hi)", outline: "none", colorScheme: "dark" }} />
-                <select value={recurrenceUnit} onChange={e => setRecurrenceUnit(e.target.value)}
-                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: "var(--text-hi)", outline: "none", colorScheme: "dark" }}>
-                  <option value="day">day(s)</option>
-                  <option value="week">week(s)</option>
-                </select>
-              </div>
-            )}
-            {recurrenceType === "CUSTOM_DAYS" && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                {DAYS.map(day => (
-                  <button key={day} onClick={() => toggleDay(day)} style={{
-                    padding: "4px 9px", borderRadius: 999, fontSize: 10.5, fontWeight: 500, cursor: "pointer",
-                    background: recurrenceDays.includes(day) ? listColor + "22" : "rgba(255,255,255,0.04)",
-                    border: `1px solid ${recurrenceDays.includes(day) ? listColor + "66" : "rgba(255,255,255,0.08)"}`,
-                    color: recurrenceDays.includes(day) ? listColor : "var(--text-md)",
-                  }}>{day}</button>
-                ))}
-              </div>
-            )}
-            {recurrenceType !== "NONE" && (
-              <div style={{ marginTop: 8 }}>
-                <span style={{ fontSize: 11, color: "var(--text-mute)", marginRight: 8 }}>End date (optional)</span>
-                <input type="date" value={recurrenceEndDate} onChange={e => setRecurrenceEndDate(e.target.value)}
-                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: "var(--text-hi)", outline: "none", colorScheme: "dark" }} />
-              </div>
-            )}
-          </div>
+            />
 
-          {/* Subtasks */}
-          <div style={{ marginTop: 24 }}>
-            <label style={labelStyle}>
-              Subtasks{subtasks.length > 0 && <span style={{ color: listColor + "cc", marginLeft: 4 }}>· {subtasks.filter(s => s.isCompleted).length}/{subtasks.length}</span>}
-            </label>
-            {subtasks.map(s => (
-              <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "5px 0" }}>
-                <button onClick={() => toggleSubLocal(s.id)} style={{
-                  width: 14, height: 14, minWidth: 14, borderRadius: "50%",
-                  border: `1.4px solid ${s.isCompleted ? listColor : listColor + "80"}`,
-                  background: s.isCompleted ? listColor : "transparent", cursor: "pointer",
-                  padding: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  {s.isCompleted && <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="#0b0d12" strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.2L5 8.5 9.5 3.8" /></svg>}
-                </button>
-                <span style={{ flex: 1, fontSize: 13, color: s.isCompleted ? "var(--text-lo)" : "var(--text-md)", textDecoration: s.isCompleted ? "line-through" : "none" }}>{s.title}</span>
-                <button onClick={() => removeSub(s.id)} style={{ background: "transparent", border: 0, color: "var(--text-mute)", cursor: "pointer", padding: 2, borderRadius: 4, display: "flex" }}>
-                  <XIcon size={12} />
-                </button>
+            {/* List + Deadline */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 22 }}>
+              <div>
+                <label style={labelStyle}>List</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {lists.map(l => (
+                    <button key={l.id} onClick={() => setSelectedListId(l.id)} style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "4px 10px 4px 8px", borderRadius: 999,
+                      background: selectedListId === l.id ? l.color + "22" : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${selectedListId === l.id ? l.color + "66" : "rgba(255,255,255,0.05)"}`,
+                      color: selectedListId === l.id ? "var(--text-hi)" : "var(--text-md)",
+                      fontSize: 11.5, cursor: "pointer", transition: "all 160ms",
+                    }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: l.color }} />
+                      {l.name}
+                    </button>
+                  ))}
+                </div>
               </div>
-            ))}
-            <div style={{ display: "flex", gap: 9, alignItems: "center", marginTop: 4 }}>
-              <div style={{ width: 14, height: 14, borderRadius: "50%", border: "1.4px dashed rgba(255,255,255,0.15)", flexShrink: 0 }} />
-              <input value={newSub} onChange={e => setNewSub(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addSub(); } }}
-                onFocus={() => setFocusField("sub")} onBlur={() => setFocusField(null)}
-                placeholder="Add subtask…"
-                style={{ ...field("sub"), fontSize: 13, padding: "4px 0" }}
-              />
+              <div>
+                <label style={labelStyle}>Deadline</label>
+                <input
+                  type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)}
+                  onFocus={() => setFocusField("deadline")} onBlur={() => setFocusField(null)}
+                  style={{ ...fieldBase("deadline"), fontSize: 12.5, colorScheme: "dark", padding: "6px 0" }}
+                />
+              </div>
+            </div>
+
+            {/* Priority */}
+            <div style={{ marginTop: 22 }}>
+              <label style={labelStyle}>Priority</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {PRIORITY_ORDER.map(p => {
+                  const c = PRIORITY_CONFIG[p].hex;
+                  const active = priority === p;
+                  return (
+                    <button key={p} onClick={() => setPriority(p)} style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "5px 11px", borderRadius: 7,
+                      background: active ? c + "22" : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${active ? c + "66" : "rgba(255,255,255,0.05)"}`,
+                      color: active ? c : "var(--text-md)",
+                      fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 160ms",
+                    }}>
+                      <span style={{ width: 5, height: 5, borderRadius: "50%", background: c, boxShadow: active ? `0 0 6px ${c}` : "none" }} />
+                      {PRIORITY_CONFIG[p].label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Recurrence */}
+            <div style={{ marginTop: 22 }}>
+              <label style={labelStyle}>Repeat</label>
+              <select
+                value={recurrenceType} onChange={e => setRecurrenceType(e.target.value as RecurrenceType)}
+                style={{
+                  width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 7, padding: "7px 10px", fontSize: 12.5, color: "var(--text-hi)",
+                  outline: "none", cursor: "pointer", colorScheme: "dark",
+                }}
+              >
+                {(Object.keys(RECURRENCE_LABELS) as RecurrenceType[]).map(r => (
+                  <option key={r} value={r}>{RECURRENCE_LABELS[r]}</option>
+                ))}
+              </select>
+              {recurrenceType === "CUSTOM_INTERVAL" && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-md)" }}>Every</span>
+                  <input type="number" min={1} value={recurrenceInterval} onChange={e => setRecurrenceInterval(e.target.value)}
+                    style={{ width: 56, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: "var(--text-hi)", outline: "none", colorScheme: "dark" }} />
+                  <select value={recurrenceUnit} onChange={e => setRecurrenceUnit(e.target.value)}
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: "var(--text-hi)", outline: "none", colorScheme: "dark" }}>
+                    <option value="day">day(s)</option>
+                    <option value="week">week(s)</option>
+                  </select>
+                </div>
+              )}
+              {recurrenceType === "CUSTOM_DAYS" && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                  {DAYS.map(day => (
+                    <button key={day} onClick={() => toggleDay(day)} style={{
+                      padding: "4px 9px", borderRadius: 999, fontSize: 10.5, fontWeight: 500, cursor: "pointer",
+                      background: recurrenceDays.includes(day) ? listColor + "22" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${recurrenceDays.includes(day) ? listColor + "66" : "rgba(255,255,255,0.08)"}`,
+                      color: recurrenceDays.includes(day) ? listColor : "var(--text-md)",
+                    }}>{day}</button>
+                  ))}
+                </div>
+              )}
+              {recurrenceType !== "NONE" && (
+                <div style={{ marginTop: 8 }}>
+                  <span style={{ fontSize: 11, color: "var(--text-mute)", marginRight: 8 }}>End date (optional)</span>
+                  <input type="date" value={recurrenceEndDate} onChange={e => setRecurrenceEndDate(e.target.value)}
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: "var(--text-hi)", outline: "none", colorScheme: "dark" }} />
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Links */}
-          <div style={{ marginTop: 24 }}>
-            <label style={labelStyle}>Links{links.length > 0 && ` · ${links.length}`}</label>
-            {links.map(lk => (
-              <div key={lk.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
-                <span style={{ width: 16, height: 16, borderRadius: 4, background: faviconColor(lk.url), display: "inline-flex", alignItems: "center", justifyContent: "center", color: "rgba(0,0,0,0.5)", flexShrink: 0 }}>
-                  <LinkIcon />
-                </span>
-                <span style={{ flex: 1, fontSize: 12.5, color: "var(--text-md)" }}>{lk.title}</span>
-                <span style={{ fontSize: 11, color: "var(--text-mute)", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lk.url.replace(/^https?:\/\//, "")}</span>
-                <button onClick={() => removeLink(lk.id)} style={{ background: "transparent", border: 0, color: "var(--text-mute)", cursor: "pointer", padding: 2, display: "flex" }}>
-                  <XIcon size={12} />
-                </button>
+          {/* Right: subtasks + links */}
+          <div style={{
+            width: 230, flexShrink: 0,
+            borderLeft: "1px solid rgba(255,255,255,0.05)",
+            display: "flex", flexDirection: "column", overflow: "hidden",
+          }}>
+            <div className="tf-scroll" style={{ flex: 1, overflowY: "auto", padding: "10px 16px 18px" }}>
+
+              {/* Subtasks */}
+              <div>
+                <label style={labelStyle}>
+                  Subtasks{subtasks.length > 0 && <span style={{ color: listColor + "cc", marginLeft: 4 }}>· {subtasks.filter(s => s.isCompleted).length}/{subtasks.length}</span>}
+                </label>
+                {subtasks.map(s => (
+                  <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
+                    <button onClick={() => toggleSubLocal(s.id)} style={{
+                      width: 14, height: 14, minWidth: 14, borderRadius: "50%",
+                      border: `1.4px solid ${s.isCompleted ? listColor : listColor + "80"}`,
+                      background: s.isCompleted ? listColor : "transparent", cursor: "pointer",
+                      padding: 0, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                    }}>
+                      {s.isCompleted && <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="#0b0d12" strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.2L5 8.5 9.5 3.8" /></svg>}
+                    </button>
+                    {editingSubId === s.id ? (
+                      <input
+                        autoFocus
+                        value={editSubValue}
+                        onChange={e => setEditSubValue(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter") { renameSubLocal(s.id, editSubValue); setEditingSubId(null); }
+                          if (e.key === "Escape") setEditingSubId(null);
+                        }}
+                        onBlur={() => { if (editSubValue.trim()) renameSubLocal(s.id, editSubValue); setEditingSubId(null); }}
+                        style={{
+                          flex: 1, background: "transparent", border: 0,
+                          borderBottom: `1px solid ${listColor}`,
+                          padding: "0 0 1px", fontSize: 13, color: "var(--text-hi)",
+                          outline: "none", minWidth: 0,
+                        }}
+                      />
+                    ) : (
+                      <span
+                        style={{ flex: 1, fontSize: 13, color: s.isCompleted ? "var(--text-lo)" : "var(--text-md)", textDecoration: s.isCompleted ? "line-through" : "none", cursor: "text" }}
+                        onDoubleClick={() => { setEditingSubId(s.id); setEditSubValue(s.title); }}
+                      >{s.title}</span>
+                    )}
+                    <button onClick={() => removeSub(s.id)} style={{ background: "transparent", border: 0, color: "var(--text-mute)", cursor: "pointer", padding: 2, borderRadius: 4, display: "flex", flexShrink: 0 }}>
+                      <XIcon size={11} />
+                    </button>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                  <div style={{ width: 14, height: 14, borderRadius: "50%", border: "1.4px dashed rgba(255,255,255,0.15)", flexShrink: 0 }} />
+                  <input
+                    value={newSub} onChange={e => setNewSub(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addSub(); } }}
+                    onFocus={() => setFocusField("sub")} onBlur={() => setFocusField(null)}
+                    placeholder="Add subtask…"
+                    style={{
+                      flex: 1, background: "transparent", border: 0,
+                      borderBottom: `1px solid ${focusField === "sub" ? listColor : "rgba(255,255,255,0.08)"}`,
+                      padding: "4px 0", fontSize: 13, color: "var(--text-hi)", outline: "none",
+                      transition: "border-color 200ms",
+                    }}
+                  />
+                </div>
               </div>
-            ))}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 10, marginTop: 6 }}>
-              <input value={newLinkTitle} onChange={e => setNewLinkTitle(e.target.value)}
-                onFocus={() => setFocusField("lt")} onBlur={() => setFocusField(null)}
-                placeholder="Title"
-                style={{ ...field("lt"), fontSize: 12.5, padding: "4px 0" }}
-              />
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input value={newLinkUrl} onChange={e => setNewLinkUrl(e.target.value)}
-                  onFocus={() => setFocusField("lu")} onBlur={() => setFocusField(null)}
-                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addLink(); } }}
-                  placeholder="https://…"
-                  style={{ ...field("lu"), fontSize: 12.5, padding: "4px 0" }}
-                />
-                <button onClick={addLink} style={{ padding: "4px 8px", background: "transparent", border: 0, color: listColor, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Add</button>
+
+              {/* Links */}
+              <div style={{ marginTop: 22 }}>
+                <label style={labelStyle}>Links{links.length > 0 && ` · ${links.length}`}</label>
+                {links.map(lk => (
+                  <div key={lk.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
+                    <span style={{ width: 15, height: 15, borderRadius: 4, background: faviconColor(lk.url), display: "inline-flex", alignItems: "center", justifyContent: "center", color: "rgba(0,0,0,0.5)", flexShrink: 0 }}>
+                      <LinkIcon />
+                    </span>
+                    <a href={lk.url} target="_blank" rel="noreferrer" style={{
+                      flex: 1, fontSize: 12, color: "var(--text-md)", textDecoration: "none",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}
+                      onMouseEnter={e => (e.currentTarget.style.color = "var(--text-hi)")}
+                      onMouseLeave={e => (e.currentTarget.style.color = "var(--text-md)")}
+                    >{lk.title}</a>
+                    <button onClick={() => removeLink(lk.id)} style={{ background: "transparent", border: 0, color: "var(--text-mute)", cursor: "pointer", padding: 2, display: "flex", flexShrink: 0 }}>
+                      <XIcon size={11} />
+                    </button>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                  <input
+                    value={newLinkUrl} onChange={e => setNewLinkUrl(e.target.value)}
+                    onFocus={() => setFocusField("lu")} onBlur={() => setFocusField(null)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addLink(); } }}
+                    placeholder="Paste URL…"
+                    style={{
+                      flex: 1, background: "transparent", border: 0,
+                      borderBottom: `1px solid ${focusField === "lu" ? listColor : "rgba(255,255,255,0.08)"}`,
+                      padding: "4px 0", fontSize: 12.5, color: "var(--text-hi)", outline: "none",
+                      transition: "border-color 200ms",
+                    }}
+                  />
+                  <button onClick={addLink} style={{ padding: "4px 8px", background: "transparent", border: 0, color: listColor, fontSize: 11, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Add</button>
+                </div>
               </div>
+
             </div>
           </div>
         </div>

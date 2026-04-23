@@ -17,14 +17,20 @@ interface Props {
   completedOpen: boolean;
   onToggleCompletedOpen: (listId: string) => void;
   showConfetti: boolean;
+  onSelect: () => void;
+  onDeleteList: () => void;
+  onRenameSubtask: (task: Task, subtaskId: string, title: string) => void;
 }
 
 export default function Column({
   list, tasks, selected, onAddTask, onToggle, onEdit, onDelete,
   onToggleSubtask, justAddedId, completedOpen, onToggleCompletedOpen, showConfetti,
+  onSelect, onDeleteList, onRenameSubtask,
 }: Props) {
   const [scrolled, setScrolled] = useState(false);
   const [addHover, setAddHover] = useState(false);
+  const [headerHover, setHeaderHover] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const accent = list.color;
 
@@ -32,7 +38,7 @@ export default function Column({
   const complete = tasks.filter(t => t.isCompleted);
 
   return (
-    <div style={{ width: 420, flexShrink: 0, display: "flex", flexDirection: "column", padding: "18px 10px 20px" }}>
+    <div style={{ width: 420, height: "100%", flexShrink: 0, display: "flex", flexDirection: "column", padding: "18px 10px 20px" }}>
       <div style={{
         flex: 1, display: "flex", flexDirection: "column",
         background: "linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(255,255,255,0.015) 100%)",
@@ -54,7 +60,12 @@ export default function Column({
           transition: "background 220ms",
           borderBottom: scrolled ? "1px solid rgba(255,255,255,0.05)" : "1px solid transparent",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "20px 20px 14px" }}>
+          <div
+            onClick={onSelect}
+            onMouseEnter={() => setHeaderHover(true)}
+            onMouseLeave={() => setHeaderHover(false)}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "20px 20px 14px", cursor: "pointer" }}
+          >
             <div style={{ width: 9, height: 9, borderRadius: "50%", background: accent, boxShadow: `0 0 10px ${accent}`, flexShrink: 0 }} />
             <h3 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: -0.3, color: "var(--text-hi)", flex: 1 }}>
               {list.name}
@@ -62,8 +73,47 @@ export default function Column({
             <span style={{
               fontSize: 11, color: "var(--text-mute)", fontVariantNumeric: "tabular-nums",
               padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,0.04)",
+              opacity: headerHover ? 0 : 1, transition: "opacity 140ms",
             }}>{incomplete.length}</span>
+            <button
+              onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
+              title="Delete list"
+              style={{
+                background: "transparent", border: 0, padding: 4, borderRadius: 5,
+                color: "var(--text-mute)", cursor: "pointer", display: "flex",
+                opacity: headerHover && !confirmDelete ? 1 : 0,
+                transition: "opacity 140ms, color 140ms", flexShrink: 0,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.color = "#ef5b6a")}
+              onMouseLeave={e => (e.currentTarget.style.color = "var(--text-mute)")}
+            >
+              <TrashIcon />
+            </button>
           </div>
+
+          {confirmDelete && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "8px 20px 10px", background: "rgba(239,91,106,0.07)",
+              borderBottom: "1px solid rgba(239,91,106,0.15)",
+            }}>
+              <span style={{ fontSize: 12, color: "var(--text-md)", flex: 1 }}>Delete &ldquo;{list.name}&rdquo;?</span>
+              <button
+                onClick={() => { setConfirmDelete(false); onDeleteList(); }}
+                style={{
+                  background: "#ef5b6a", border: 0, color: "#fff",
+                  padding: "3px 10px", borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                }}
+              >Delete</button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                style={{
+                  background: "transparent", border: 0, color: "var(--text-lo)",
+                  padding: "3px 8px", fontSize: 11, cursor: "pointer",
+                }}
+              >Cancel</button>
+            </div>
+          )}
 
           <button
             onClick={() => onAddTask(list.id)}
@@ -107,6 +157,7 @@ export default function Column({
               key={t.id} task={t} list={list}
               onToggle={onToggle} onEdit={onEdit} onDelete={onDelete}
               onToggleSubtask={onToggleSubtask}
+              onRenameSubtask={onRenameSubtask}
               justAdded={t.id === justAddedId}
             />
           ))}
@@ -144,6 +195,7 @@ export default function Column({
                     key={t.id} task={t} list={list}
                     onToggle={onToggle} onEdit={onEdit} onDelete={onDelete}
                     onToggleSubtask={onToggleSubtask}
+                    onRenameSubtask={onRenameSubtask}
                   />
                 ))}
               </div>
@@ -220,6 +272,11 @@ function ConfettiBurst({ accent }: { accent: string }) {
 const PlusIcon = () => (
   <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
     <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+const TrashIcon = () => (
+  <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
   </svg>
 );
 const ChevronRIcon = () => (

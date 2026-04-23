@@ -48,6 +48,7 @@ export default function TasksShell() {
   const [view, setView] = useState<View>("tasks");
   const [hiddenLists, setHiddenLists] = useState<Set<string>>(new Set());
   const columnsRef = useRef<HTMLDivElement>(null);
+  const visibleListsRef = useRef<typeof visibleLists>([]);
 
   const toggleHidden = (id: string) =>
     setHiddenLists(h => { const n = new Set(h); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -94,6 +95,7 @@ export default function TasksShell() {
   const allTasks = useMemo(() => Object.values(tasksByList).flat(), [tasksByList]);
   const allCount = allTasks.filter(t => !t.isCompleted).length;
   const visibleLists = listsWithCounts.filter(l => !hiddenLists.has(l.id));
+  visibleListsRef.current = visibleLists;
 
   // ── actions ────────────────────────────────────────────────
   const handleToggle = async (task: Task) => {
@@ -156,6 +158,58 @@ export default function TasksShell() {
     });
   };
 
+  const handleRenameSubtask = async (task: Task, subtaskId: string, title: string) => {
+    if (!title.trim()) return;
+    setTasksByList(prev => ({
+      ...prev,
+      [task.listId]: (prev[task.listId] || []).map(t =>
+        t.id === task.id ? { ...t, subtasks: t.subtasks.map(s => s.id === subtaskId ? { ...s, title } : s) } : t
+      ),
+    }));
+    await fetch(`/api/tasks/${task.id}/subtasks`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subtaskId, title }),
+    });
+  };
+
+  const handleRenameList = async (id: string, name: string) => {
+    if (!name.trim()) return;
+    setLists(prev => prev.map(l => l.id === id ? { ...l, name: name.trim() } : l));
+    await fetch(`/api/lists/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+  };
+
+  const handleDeleteList = async (listId: string) => {
+    await fetch(`/api/lists/${listId}`, { method: "DELETE" });
+    const res = await fetch("/api/lists");
+    if (!res.ok) return;
+    const data: TaskList[] = await res.json();
+    setLists(data);
+    await fetchAllTasks(data.map(l => l.id));
+    if (selectedListId === listId) {
+      setSelectedListId(data.length > 0 ? data[0].id : null);
+    }
+  };
+
+  const handleColumnsScroll = useCallback(() => {
+    if (!columnsRef.current) return;
+    const container = columnsRef.current;
+    const centerX = container.scrollLeft + container.clientWidth / 2;
+    let closestId: string | null = null;
+    let closestDist = Infinity;
+    visibleListsRef.current.forEach(list => {
+      const el = container.querySelector(`[data-list-col="${list.id}"]`) as HTMLElement | null;
+      if (el) {
+        const colCenter = el.offsetLeft + el.offsetWidth / 2;
+        const dist = Math.abs(colCenter - centerX);
+        if (dist < closestDist) { closestDist = dist; closestId = list.id; }
+      }
+    });
+    if (closestId) setSelectedListId(closestId);
+  }, []);
+
   const createList = async (name: string, color: string) => {
     const res = await fetch("/api/lists", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -175,7 +229,8 @@ export default function TasksShell() {
       if (el && columnsRef.current) {
         const r = el.getBoundingClientRect();
         const cr = columnsRef.current.getBoundingClientRect();
-        columnsRef.current.scrollTo({ left: columnsRef.current.scrollLeft + r.left - cr.left - 24, behavior: "smooth" });
+        const centerOffset = cr.width / 2 - r.width / 2;
+        columnsRef.current.scrollTo({ left: columnsRef.current.scrollLeft + r.left - cr.left - centerOffset, behavior: "smooth" });
       }
     }, 30);
   };
@@ -187,6 +242,7 @@ export default function TasksShell() {
         selectedListId={selectedListId}
         onSelect={onSelect}
         onCreate={createList}
+        onRename={handleRenameList}
         allCount={allCount}
         hiddenLists={hiddenLists}
         onToggleHidden={toggleHidden}
@@ -245,13 +301,14 @@ export default function TasksShell() {
         ) : (
           <div
             ref={columnsRef}
+            onScroll={handleColumnsScroll}
             style={{ height: "calc(100vh - 52px)", overflowX: "auto", overflowY: "hidden", display: "flex" }}
             className="tf-scroll"
           >
             {loading ? <SkeletonColumns /> : (
               <>
                 {visibleLists.map(list => (
-                  <div key={list.id} data-list-col={list.id}>
+                  <div key={list.id} data-list-col={list.id} style={{ height: "100%", display: "flex" }}>
                     <Column
                       list={list}
                       tasks={tasksByList[list.id] || []}
@@ -265,26 +322,12 @@ export default function TasksShell() {
                       completedOpen={completedOpen[list.id] ?? false}
                       onToggleCompletedOpen={id => setCompletedOpen(c => ({ ...c, [id]: !c[id] }))}
                       showConfetti={confettiListId === list.id}
+                      onSelect={() => onSelect(list.id)}
+                      onDeleteList={() => handleDeleteList(list.id)}
+                      onRenameSubtask={handleRenameSubtask}
                     />
                   </div>
                 ))}
-                {/* New list affordance */}
-                <div style={{ width: 180, flexShrink: 0, padding: "18px 10px", display: "flex" }}>
-                  <button
-                    onClick={() => { /* trigger sidebar create */ }}
-                    style={{
-                      flex: 1, border: "1px dashed rgba(255,255,255,0.08)", borderRadius: 14,
-                      background: "transparent", color: "var(--text-mute)", fontSize: 12, cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                      transition: "all 180ms",
-                    }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.18)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--text-md)"; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.08)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--text-mute)"; }}
-                  >
-                    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                    New list
-                  </button>
-                </div>
               </>
             )}
           </div>

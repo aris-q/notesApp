@@ -17,15 +17,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "listId required" }, { status: 400 });
     }
 
-    // Verify list belongs to user
-    const list = await prisma.taskList.findFirst({
-      where: { id: listId, userId: user.id },
-    });
-    if (!list) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
     const tasks = await prisma.task.findMany({
       where: {
         listId,
+        list: { userId: user.id },
         ...(priority ? { priority } : {}),
         ...(completed !== null ? { isCompleted: completed === "true" } : {}),
         ...(dueBefore || dueAfter

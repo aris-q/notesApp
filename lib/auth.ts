@@ -13,10 +13,11 @@ export class AuthError extends Error {
   }
 }
 
+// Cache the resolved user record in memory — single-user app, safe to hold indefinitely.
+const userCache = new Map<string, { id: string; auth0Sub: string; email: string }>();
+
 export async function requireAuthorizedUser(req?: NextRequest) {
   const session = req ? await auth0.getSession(req as Parameters<typeof auth0.getSession>[0]) : await auth0.getSession();
-
-  console.log("[auth] session:", session ? `user=${session.user?.email}` : "null");
 
   if (!session) {
     throw new AuthError(401, "Unauthorized");
@@ -26,7 +27,9 @@ export async function requireAuthorizedUser(req?: NextRequest) {
     throw new AuthError(403, "Forbidden");
   }
 
-  // Upsert user record on first access
+  const cached = userCache.get(session.user.sub);
+  if (cached) return cached;
+
   const user = await prisma.user.upsert({
     where: { auth0Sub: session.user.sub },
     update: {},
@@ -36,6 +39,7 @@ export async function requireAuthorizedUser(req?: NextRequest) {
     },
   });
 
+  userCache.set(session.user.sub, user);
   return user;
 }
 

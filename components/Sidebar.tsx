@@ -13,16 +13,24 @@ interface Props {
   selectedListId: string | null;
   onSelect: (id: string) => void;
   onCreate: (name: string, color: string) => void;
+  onRename: (id: string, name: string) => void;
   allCount: number;
   hiddenLists: Set<string>;
   onToggleHidden: (id: string) => void;
 }
 
-export default function Sidebar({ lists, selectedListId, onSelect, onCreate, allCount, hiddenLists, onToggleHidden }: Props) {
+function nextAvailableColor(usedColors: string[]): string {
+  const used = new Set(usedColors.map(c => c.toLowerCase()));
+  return PRESET_COLORS.find(c => !used.has(c.toLowerCase())) ?? PRESET_COLORS[0];
+}
+
+export default function Sidebar({ lists, selectedListId, onSelect, onCreate, onRename, allCount, hiddenLists, onToggleHidden }: Props) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState(PRESET_COLORS[0]);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
   const [indicator, setIndicator] = useState({ top: 0, color: "#7c9dff", visible: false });
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const listRef = useRef<HTMLDivElement>(null);
@@ -99,7 +107,7 @@ export default function Sidebar({ lists, selectedListId, onSelect, onCreate, all
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 6px" }}>
         <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1.4, color: "var(--text-mute)", textTransform: "uppercase" }}>Lists</span>
         <button
-          onClick={() => setCreating(true)}
+          onClick={() => { setNewColor(nextAvailableColor(lists.map(l => l.color))); setCreating(true); }}
           style={{ background: "transparent", border: 0, padding: 2, borderRadius: 4, color: "var(--text-lo)", cursor: "pointer", display: "flex", transition: "color 140ms" }}
           onMouseEnter={e => (e.currentTarget.style.color = "var(--text-hi)")}
           onMouseLeave={e => (e.currentTarget.style.color = "var(--text-lo)")}
@@ -146,9 +154,32 @@ export default function Sidebar({ lists, selectedListId, onSelect, onCreate, all
                 boxShadow: active && !hidden ? `0 0 8px ${list.color}` : "none",
                 transition: "box-shadow 220ms", flexShrink: 0,
               }} />
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecorationLine: hidden ? "line-through" : "none", textDecorationColor: "var(--text-mute)" }}>
-                {list.name}
-              </span>
+              {editingId === list.id ? (
+                <input
+                  autoFocus
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onClick={e => e.stopPropagation()}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") { onRename(list.id, editValue); setEditingId(null); }
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                  onBlur={() => { if (editValue.trim()) onRename(list.id, editValue); setEditingId(null); }}
+                  style={{
+                    flex: 1, background: "transparent", border: 0,
+                    borderBottom: `1px solid ${list.color}`,
+                    padding: "0 0 1px", fontSize: 13, color: "var(--text-hi)", outline: "none",
+                    minWidth: 0,
+                  }}
+                />
+              ) : (
+                <span
+                  style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecorationLine: hidden ? "line-through" : "none", textDecorationColor: "var(--text-mute)" }}
+                  onDoubleClick={e => { e.stopPropagation(); setEditingId(list.id); setEditValue(list.name); }}
+                >
+                  {list.name}
+                </span>
+              )}
               <button
                 onClick={e => { e.stopPropagation(); onToggleHidden(list.id); }}
                 title={hidden ? "Show list" : "Hide list"}
@@ -213,7 +244,7 @@ export default function Sidebar({ lists, selectedListId, onSelect, onCreate, all
       {/* Create new list (ghost) */}
       {!creating && (
         <button
-          onClick={() => setCreating(true)}
+          onClick={() => { setNewColor(nextAvailableColor(lists.map(l => l.color))); setCreating(true); }}
           style={{
             display: "flex", alignItems: "center", gap: 8,
             padding: "10px 18px", margin: "0 0 6px",

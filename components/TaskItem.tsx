@@ -33,11 +33,14 @@ interface Props {
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
   onToggleSubtask: (task: Task, subtaskId: string, isCompleted: boolean) => void;
+  onRenameSubtask?: (task: Task, subtaskId: string, title: string) => void;
   justAdded?: boolean;
 }
 
-export default function TaskItem({ task, list, onToggle, onEdit, onDelete, onToggleSubtask, justAdded }: Props) {
+export default function TaskItem({ task, list, onToggle, onEdit, onDelete, onToggleSubtask, onRenameSubtask, justAdded }: Props) {
   const [popping, setPopping] = useState(false);
+  const [editingSubId, setEditingSubId] = useState<string | null>(null);
+  const [editSubValue, setEditSubValue] = useState("");
   const accent = list?.color || "#7c9dff";
   const dead = deadlineMeta(task.deadline, task.isCompleted);
   const cfg = PRIORITY_CONFIG[task.priority];
@@ -152,13 +155,36 @@ export default function TaskItem({ task, list, onToggle, onEdit, onDelete, onTog
                     backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.14) 50%, transparent 50%)",
                     backgroundSize: "4px 1px",
                   }} />
-                  <span style={{
-                    flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.35,
-                    color: sub.isCompleted ? "var(--text-mute)" : "var(--text-md)",
-                    textDecoration: sub.isCompleted ? "line-through" : "none",
-                    textDecorationThickness: "1px",
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>{sub.title}</span>
+                  {editingSubId === sub.id ? (
+                    <input
+                      autoFocus
+                      value={editSubValue}
+                      onChange={e => setEditSubValue(e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") { onRenameSubtask?.(task, sub.id, editSubValue); setEditingSubId(null); }
+                        if (e.key === "Escape") setEditingSubId(null);
+                      }}
+                      onBlur={() => { if (editSubValue.trim()) onRenameSubtask?.(task, sub.id, editSubValue); setEditingSubId(null); }}
+                      style={{
+                        flex: 1, background: "transparent", border: 0,
+                        borderBottom: `1px solid ${accent}`,
+                        padding: "0 0 1px", fontSize: 12.5, color: "var(--text-hi)",
+                        outline: "none", minWidth: 0,
+                      }}
+                    />
+                  ) : (
+                    <span
+                      style={{
+                        flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.35,
+                        color: sub.isCompleted ? "var(--text-mute)" : "var(--text-md)",
+                        textDecorationLine: sub.isCompleted ? "line-through" : "none",
+                        textDecorationThickness: "1px",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}
+                      onDoubleClick={e => { e.stopPropagation(); setEditingSubId(sub.id); setEditSubValue(sub.title); }}
+                    >{sub.title}</span>
+                  )}
                   <button
                     onClick={e => { e.stopPropagation(); onToggleSubtask(task, sub.id, !sub.isCompleted); }}
                     style={{

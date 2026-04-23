@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Task, TaskList } from "@/lib/types";
 import { addDays } from "date-fns";
 import { expandRecurrence } from "@/lib/recurrence";
@@ -47,14 +47,16 @@ export default function CalendarView({ tasks, lists, onEditTask, onAddTask }: Pr
     return m;
   }, [tasks]);
 
-  const go = (delta: number) => {
-    const d = new Date(cursor);
-    if (mode === "month") d.setMonth(d.getMonth() + delta);
-    else if (mode === "week") d.setDate(d.getDate() + delta * 7);
-    else d.setDate(d.getDate() + delta);
-    setCursor(d);
-    if (mode === "day") { const sd = new Date(d); sd.setHours(0,0,0,0); setSelectedDay(sd); }
-  };
+  const go = useCallback((delta: number) => {
+    setCursor(prev => {
+      const d = new Date(prev);
+      if (mode === "month") d.setMonth(d.getMonth() + delta);
+      else if (mode === "week") d.setDate(d.getDate() + delta * 7);
+      else d.setDate(d.getDate() + delta);
+      if (mode === "day") { const sd = new Date(d); sd.setHours(0,0,0,0); setSelectedDay(sd); }
+      return d;
+    });
+  }, [mode]);
 
   const goToday = () => {
     const t = new Date(); setCursor(t);
@@ -76,8 +78,19 @@ export default function CalendarView({ tasks, lists, onEditTask, onAddTask }: Pr
     const sd = new Date(date); sd.setHours(0,0,0,0); setSelectedDay(sd); setCursor(date);
   };
 
+  const wheelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    if (wheelTimerRef.current) return;
+    wheelTimerRef.current = setTimeout(() => { wheelTimerRef.current = null; }, 400);
+    go(e.deltaY > 0 ? 1 : -1);
+  }, [go]);
+
   return (
-    <div style={{ padding: 18, height: "100%", display: "flex", flexDirection: "column" }}>
+    <div
+      style={{ padding: 18, height: "100%", display: "flex", flexDirection: "column" }}
+      onWheel={handleWheel}
+    >
       <div style={{
         flex: 1, display: "flex", flexDirection: "column",
         background: "linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(255,255,255,0.015) 100%)",

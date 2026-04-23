@@ -128,3 +128,79 @@
     @apply font-sans;
   }
 }
+
+/* ── TaskFlow dark theme ── */
+:root {
+  --bg-app: #0b0d12;
+  --bg-sidebar: #10131a;
+  --bg-columns: #151924;
+  --bg-modal: #1a1f2c;
+  --bg-row-hover: rgba(255,255,255,0.035);
+  --border-soft: rgba(255,255,255,0.06);
+  --border-softer: rgba(255,255,255,0.035);
+  --text-hi: #e7e9ef;
+  --text-md: #a6abba;
+  --text-lo: #6b7182;
+  --text-mute: #4a5060;
+  --accent-today: #f5b947;
+  --accent-overdue: #ef5b6a;
+  --accent-muted: #6b7182;
+}
+
+@keyframes tf-slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes tf-modalIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes tf-backdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes tf-pulseSkel {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 0.8; }
+}
+@keyframes tf-checkPop {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+@keyframes tf-particleRise {
+  to { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; }
+}
+
+.tf-skel {
+  animation: tf-pulseSkel 1.6s ease-in-out infinite;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+}
+
+/* dark scrollbars */
+.tf-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.tf-scroll::-webkit-scrollbar-track { background: transparent; }
+.tf-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.06);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.tf-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.12);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* task row hover delete */
+.tf-task-row:hover .tf-row-delete { opacity: 1 !important; }
+.tf-task-row .tf-task-title:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--text-lo);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+/* calendar day add button */
+.tf-cal-day:hover .tf-cal-day-add { opacity: 1 !important; }

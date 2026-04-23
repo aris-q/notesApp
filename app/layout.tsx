@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-const geist = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+const inter = Inter({ variable: "--font-sans", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "TaskFlow",
@@ -15,8 +15,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${geist.variable} h-full antialiased`}>
-      <body className="h-full bg-gray-50 text-gray-900">{children}</body>
+    <html lang="en" className={`${inter.variable} h-full antialiased`}>
+      <body suppressHydrationWarning className="h-full" style={{ background: "var(--bg-app)", color: "var(--text-hi)", overflow: "hidden" }}>{children}</body>
     </html>
   );
 }

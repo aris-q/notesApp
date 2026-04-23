@@ -1,139 +1,300 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sidebar from "./Sidebar";
-import TaskPanel from "./TaskPanel";
+import Column from "./Column";
 import TaskModal from "./TaskModal";
+import CalendarView from "./CalendarView";
 import { Task, TaskList } from "@/lib/types";
 
+type View = "tasks" | "calendar";
+
+function SkeletonColumns() {
+  return (
+    <>
+      {[0, 1, 2, 3].map(i => (
+        <div key={i} style={{ width: 420, flexShrink: 0, padding: "18px 10px", display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1, background: "linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.015))", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 14, padding: 18 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 18 }}>
+              <div className="tf-skel" style={{ width: 8, height: 8, borderRadius: "50%" }} />
+              <div className="tf-skel" style={{ height: 11, width: 110 }} />
+              <div className="tf-skel" style={{ height: 11, width: 24, marginLeft: "auto" }} />
+            </div>
+            {[0, 1, 2, 3].map(j => (
+              <div key={j} style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                <div className="tf-skel" style={{ width: 16, height: 16, borderRadius: "50%", flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div className="tf-skel" style={{ height: 11, width: `${60 + (j * 13) % 30}%`, marginBottom: 6 }} />
+                  <div className="tf-skel" style={{ height: 9, width: "38%" }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 export default function TasksShell() {
+  const [loading, setLoading] = useState(true);
   const [lists, setLists] = useState<TaskList[]>([]);
+  const [tasksByList, setTasksByList] = useState<Record<string, Task[]>>({});
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [filterPriority, setFilterPriority] = useState<string>("ALL");
-  const [filterDue, setFilterDue] = useState<string>("ALL");
+  const [modal, setModal] = useState<{ listId: string | null; task: Task | null; defaultDate?: Date } | null>(null);
+  const [justAddedId, setJustAddedId] = useState<string | null>(null);
+  const [completedOpen, setCompletedOpen] = useState<Record<string, boolean>>({});
+  const [confettiListId, setConfettiListId] = useState<string | null>(null);
+  const [view, setView] = useState<View>("tasks");
+  const [hiddenLists, setHiddenLists] = useState<Set<string>>(new Set());
+  const columnsRef = useRef<HTMLDivElement>(null);
+
+  const toggleHidden = (id: string) =>
+    setHiddenLists(h => { const n = new Set(h); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // ── data fetching ──────────────────────────────────────────
+  const fetchAllTasks = useCallback(async (listIds: string[]) => {
+    const results = await Promise.all(
+      listIds.map(async id => {
+        const res = await fetch(`/api/tasks?listId=${id}`);
+        if (!res.ok) return [id, []] as [string, Task[]];
+        return [id, await res.json()] as [string, Task[]];
+      })
+    );
+    setTasksByList(Object.fromEntries(results));
+  }, []);
 
   const fetchLists = useCallback(async () => {
     const res = await fetch("/api/lists");
     if (!res.ok) return;
     const data: TaskList[] = await res.json();
     setLists(data);
-    if (data.length > 0 && !selectedListId) {
-      setSelectedListId(data[0].id);
+    if (data.length > 0) {
+      if (!selectedListId) setSelectedListId(data[0].id);
+      await fetchAllTasks(data.map(l => l.id));
     }
-  }, [selectedListId]);
+    setLoading(false);
+  }, [fetchAllTasks, selectedListId]);
 
-  useEffect(() => {
-    fetchLists();
-  }, [fetchLists]);
+  useEffect(() => { fetchLists(); }, []); // eslint-disable-line
 
-  const fetchTasks = useCallback(async () => {
-    if (!selectedListId) return;
-    const params = new URLSearchParams({ listId: selectedListId });
-    if (filterPriority !== "ALL") params.set("priority", filterPriority);
-    if (filterDue === "OVERDUE") {
-      params.set("dueBefore", new Date().toISOString());
-    } else if (filterDue === "TODAY") {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
-      params.set("dueAfter", start.toISOString());
-      params.set("dueBefore", end.toISOString());
-    } else if (filterDue === "THIS_WEEK") {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 7);
-      params.set("dueAfter", start.toISOString());
-      params.set("dueBefore", end.toISOString());
-    } else if (filterDue === "THIS_MONTH") {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setMonth(end.getMonth() + 1);
-      params.set("dueAfter", start.toISOString());
-      params.set("dueBefore", end.toISOString());
-    }
-
-    const res = await fetch(`/api/tasks?${params.toString()}`);
+  const refresh = useCallback(async () => {
+    const res = await fetch("/api/lists");
     if (!res.ok) return;
-    setTasks(await res.json());
-  }, [selectedListId, filterPriority, filterDue]);
+    const data: TaskList[] = await res.json();
+    setLists(data);
+    await fetchAllTasks(data.map(l => l.id));
+  }, [fetchAllTasks]);
 
-  useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
+  // ── derived ────────────────────────────────────────────────
+  const listsWithCounts = useMemo(
+    () => lists.map(l => ({ ...l, count: (tasksByList[l.id] || []).filter(t => !t.isCompleted).length })),
+    [lists, tasksByList]
+  );
+  const allTasks = useMemo(() => Object.values(tasksByList).flat(), [tasksByList]);
+  const allCount = allTasks.filter(t => !t.isCompleted).length;
+  const visibleLists = listsWithCounts.filter(l => !hiddenLists.has(l.id));
 
-  const openCreate = () => {
-    setEditingTask(null);
-    setIsModalOpen(true);
-  };
-
-  const openEdit = (task: Task) => {
-    setEditingTask(task);
-    setIsModalOpen(true);
-  };
-
-  const handleModalClose = () => {
-    setIsModalOpen(false);
-    setEditingTask(null);
-    fetchTasks();
-    fetchLists();
-  };
-
-  const handleToggleComplete = async (task: Task) => {
+  // ── actions ────────────────────────────────────────────────
+  const handleToggle = async (task: Task) => {
+    const nowComplete = !task.isCompleted;
+    // optimistic update
+    setTasksByList(prev => ({
+      ...prev,
+      [task.listId]: (prev[task.listId] || []).map(t => t.id === task.id ? { ...t, isCompleted: nowComplete } : t),
+    }));
     await fetch(`/api/tasks/${task.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isCompleted: !task.isCompleted }),
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isCompleted: nowComplete }),
     });
-    fetchTasks();
-  };
-
-  const handleDeleteTask = async (task: Task) => {
-    await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
-    fetchTasks();
-    fetchLists();
+    if (nowComplete) {
+      const updated = (tasksByList[task.listId] || []).map(t => t.id === task.id ? { ...t, isCompleted: true } : t);
+      if (updated.length > 0 && updated.every(t => t.isCompleted)) {
+        setConfettiListId(task.listId);
+        setTimeout(() => setConfettiListId(null), 1400);
+      }
+    }
+    refresh();
   };
 
   const handleToggleSubtask = async (task: Task, subtaskId: string, isCompleted: boolean) => {
     await fetch(`/api/tasks/${task.id}/subtasks`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ subtaskId, isCompleted }),
     });
-    fetchTasks();
+    const res = await fetch(`/api/tasks?listId=${task.listId}`);
+    if (res.ok) {
+      const tasks: Task[] = await res.json();
+      setTasksByList(prev => ({ ...prev, [task.listId]: tasks }));
+    }
+  };
+
+  const handleDelete = async (task: Task) => {
+    await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
+    if (modal?.task?.id === task.id) setModal(null);
+    refresh();
+  };
+
+  const openCreate = (listId: string | null, defaultDate?: Date) =>
+    setModal({ listId: listId ?? selectedListId, task: null, defaultDate });
+
+  const openEdit = (task: Task) => setModal({ listId: task.listId, task });
+
+  const handleModalClose = async () => {
+    // detect newly added task by refetching and comparing
+    const before = Object.values(tasksByList).flat().map(t => t.id);
+    setModal(null);
+    await refresh();
+    setTasksByList(cur => {
+      const after = Object.values(cur).flat();
+      const newTask = after.find(t => !before.includes(t.id));
+      if (newTask) {
+        setJustAddedId(newTask.id);
+        setTimeout(() => setJustAddedId(null), 400);
+      }
+      return cur;
+    });
+  };
+
+  const createList = async (name: string, color: string) => {
+    const res = await fetch("/api/lists", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, color }),
+    });
+    if (res.ok) {
+      const list = await res.json();
+      await refresh();
+      setSelectedListId(list.id);
+    }
+  };
+
+  const onSelect = (id: string) => {
+    setSelectedListId(id);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-list-col="${id}"]`);
+      if (el && columnsRef.current) {
+        const r = el.getBoundingClientRect();
+        const cr = columnsRef.current.getBoundingClientRect();
+        columnsRef.current.scrollTo({ left: columnsRef.current.scrollLeft + r.left - cr.left - 24, behavior: "smooth" });
+      }
+    }, 30);
   };
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div style={{ display: "flex", height: "100vh", background: "transparent" }}>
       <Sidebar
-        lists={lists}
+        lists={listsWithCounts}
         selectedListId={selectedListId}
-        onSelect={setSelectedListId}
-        onListsChange={fetchLists}
+        onSelect={onSelect}
+        onCreate={createList}
+        allCount={allCount}
+        hiddenLists={hiddenLists}
+        onToggleHidden={toggleHidden}
       />
-      <TaskPanel
-        tasks={tasks}
-        selectedListId={selectedListId}
-        lists={lists}
-        filterPriority={filterPriority}
-        filterDue={filterDue}
-        onFilterPriority={setFilterPriority}
-        onFilterDue={setFilterDue}
-        onCreateTask={openCreate}
-        onEditTask={openEdit}
-        onToggleComplete={handleToggleComplete}
-        onDeleteTask={handleDeleteTask}
-        onToggleSubtask={handleToggleSubtask}
-      />
-      {isModalOpen && (
+
+      <main style={{ flex: 1, height: "100%", overflow: "hidden", background: "var(--bg-columns)", position: "relative" }}>
+        {/* Top bar */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 22px", height: 52,
+          borderBottom: "1px solid var(--border-softer)", position: "relative", zIndex: 1,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <h1 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text-hi)", letterSpacing: -0.1 }}>My tasks</h1>
+            <div style={{ display: "inline-flex", padding: 2, borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.04)" }}>
+              {([["tasks", "Tasks"], ["calendar", "Calendar"]] as const).map(([k, label]) => (
+                <button key={k} onClick={() => setView(k)} style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  padding: "4px 10px", borderRadius: 6,
+                  background: view === k ? "rgba(255,255,255,0.08)" : "transparent",
+                  color: view === k ? "var(--text-hi)" : "var(--text-lo)",
+                  border: 0, fontSize: 11.5, fontWeight: 500, cursor: "pointer",
+                  transition: "background 160ms, color 160ms",
+                }}>{label}</button>
+              ))}
+            </div>
+            <span style={{
+              fontSize: 11, color: "var(--text-mute)", padding: "2px 8px", borderRadius: 999,
+              background: "rgba(255,255,255,0.04)", fontVariantNumeric: "tabular-nums",
+            }}>{allCount} open · {allTasks.filter(t => t.isCompleted).length} done</span>
+          </div>
+          <a href="/auth/logout" style={{
+            background: "transparent", border: 0, color: "var(--text-lo)", cursor: "pointer",
+            padding: 6, borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 6,
+            fontSize: 12, textDecoration: "none", transition: "color 160ms",
+          }}
+            onMouseEnter={e => (e.currentTarget.style.color = "var(--text-hi)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "var(--text-lo)")}
+          >
+            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" />
+            </svg>
+            Sign out
+          </a>
+        </div>
+
+        {view === "calendar" ? (
+          <div style={{ height: "calc(100vh - 52px)", overflow: "hidden" }}>
+            <CalendarView
+              tasks={allTasks}
+              lists={lists}
+              onEditTask={openEdit}
+              onAddTask={openCreate}
+            />
+          </div>
+        ) : (
+          <div
+            ref={columnsRef}
+            style={{ height: "calc(100vh - 52px)", overflowX: "auto", overflowY: "hidden", display: "flex" }}
+            className="tf-scroll"
+          >
+            {loading ? <SkeletonColumns /> : (
+              <>
+                {visibleLists.map(list => (
+                  <div key={list.id} data-list-col={list.id}>
+                    <Column
+                      list={list}
+                      tasks={tasksByList[list.id] || []}
+                      selected={selectedListId === list.id}
+                      onAddTask={id => openCreate(id)}
+                      onToggle={handleToggle}
+                      onEdit={openEdit}
+                      onDelete={handleDelete}
+                      onToggleSubtask={handleToggleSubtask}
+                      justAddedId={justAddedId}
+                      completedOpen={completedOpen[list.id] ?? false}
+                      onToggleCompletedOpen={id => setCompletedOpen(c => ({ ...c, [id]: !c[id] }))}
+                      showConfetti={confettiListId === list.id}
+                    />
+                  </div>
+                ))}
+                {/* New list affordance */}
+                <div style={{ width: 180, flexShrink: 0, padding: "18px 10px", display: "flex" }}>
+                  <button
+                    onClick={() => { /* trigger sidebar create */ }}
+                    style={{
+                      flex: 1, border: "1px dashed rgba(255,255,255,0.08)", borderRadius: 14,
+                      background: "transparent", color: "var(--text-mute)", fontSize: 12, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      transition: "all 180ms",
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.18)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--text-md)"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.08)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--text-mute)"; }}
+                  >
+                    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                    New list
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </main>
+
+      {modal && (
         <TaskModal
-          task={editingTask}
-          listId={selectedListId}
+          task={modal.task}
+          listId={modal.listId}
           lists={lists}
           onClose={handleModalClose}
         />
